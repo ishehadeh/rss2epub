@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import process from 'process';
 import { EPub } from '@lesjoursfr/html-to-epub';
 import RSSParser from 'rss-parser';
+import path from 'path';
 
 async function getArticle(url) {
     const resp = await axios({
@@ -19,6 +20,7 @@ async function getArticle(url) {
 async function epubFromArticles(title, articles, path) {
     let options = {
         title,
+        verbose: true,
         author: "article2epub",
         content: articles.map(a => ({ title: a.title, author: a.author, data: a.content }))
     }
@@ -38,7 +40,10 @@ async function rssToEpub(url, outPath) {
             console.error(`failed to parse article '${item.title}': ${e}`);
         }
     }
-    return epubFromArticles(feed.title, articles, outPath)
+    const epub = await epubFromArticles(feed.title, articles, outPath);
+    await epub.render();
+    return epub;
 }
 
-rssToEpub(process.argv[2], process.argv[3]);
+
+await rssToEpub(process.argv[2], path.resolve(process.argv[3]));
