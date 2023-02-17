@@ -1,9 +1,9 @@
-const axios = require('axios');
-const { Readability } = require('@mozilla/readability');
-const { JSDOM } = require('jsdom');
-const process = require('process');
-const Epub = require("epub-gen");
-const RSSParser = require('rss-parser');
+import axios from 'axios';
+import { Readability } from '@mozilla/readability';
+import { JSDOM } from 'jsdom';
+import process from 'process';
+import { EPub } from '@lesjoursfr/html-to-epub';
+import RSSParser from 'rss-parser';
 
 async function getArticle(url) {
     const resp = await axios({
@@ -23,7 +23,7 @@ async function epubFromArticles(title, articles, path) {
         content: articles.map(a => ({ title: a.title, author: a.author, data: a.content }))
     }
 
-    return new Epub(options, path)
+    return new EPub(options, path)
 }
 
 
