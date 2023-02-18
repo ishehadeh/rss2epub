@@ -4,7 +4,8 @@ import process from 'process';
 import { EPub } from '@lesjoursfr/html-to-epub';
 import RSSParser from 'rss-parser';
 import path from 'path';
-
+import { existsSync, mkdirSync } from 'fs';
+import { createHash } from 'crypto';
 
 // try to make all img src that fail to parse as a URL relative to `base`
 function makeImageSrcsAbsolute(document, base) {
@@ -59,5 +60,43 @@ async function rssToEpub(url, outPath) {
     return epub;
 }
 
+async function rssToEpubSeparate(url, outDir) {
+    if (!existsSync(outDir)) {
+        mkdirSync(outDir);
+    }
 
-await rssToEpub(process.argv[2], path.resolve(process.argv[3]));
+    const feedParser = new RSSParser();
+    const feed = await feedParser.parseURL(url);
+    for (const item of feed.items) {
+        let url = new URL(item.link);
+        url.hash = "";
+        const hasher = createHash('md5');
+        hasher.update(url.toString());
+        const filename = hasher.digest().toString('hex');
+        const epubFile = path.join(outDir, filename + ".epub");
+        if (existsSync(epubFile)) {
+            console.log(`skipping ${item.link}, already converted (${filename}.epub)`);
+            continue;
+        }
+
+        try {
+            const article = await getArticle(item.link);
+            let options = {
+                title: article.title,
+                author: article.byline,
+                date: new Date(item.pubDate),
+                content: [{ data: article.content }]
+            }
+
+            let epub = new EPub(options, epubFile);
+            await epub.render();
+        } catch (e) {
+            console.error(`failed to parse article '${item.title}': ${e}`);
+            continue;
+        }
+
+    }
+}
+
+
+await rssToEpubSeparate(process.argv[2], path.resolve(process.argv[3]));
