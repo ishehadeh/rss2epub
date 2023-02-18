@@ -25,7 +25,7 @@ function makeImageSrcsAbsolute(document, base) {
 }
 
 async function getArticle(url) {
-    const dom = new JSDOM(url);
+    const dom = await JSDOM.fromURL(url);
     makeImageSrcsAbsolute(dom.window.document, url);
     const reader = new Readability(dom.window.document);
     return reader.parse()
