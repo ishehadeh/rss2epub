@@ -6,13 +6,33 @@ import { EPub } from '@lesjoursfr/html-to-epub';
 import RSSParser from 'rss-parser';
 import path from 'path';
 
+
+// try to make all img src that fail to parse as a URL relative to `base`
+function makeImageSrcsAbsolute(document, base) {
+    const images = document.querySelectorAll("img");
+    for (const image of images) {
+        try {
+            const _url = new URL(image.src);
+        } catch (e) {
+            if (e instanceof TypeError && e.code == "ERR_INVALID_URL") {
+                const url = new URL(image.src, base);
+                console.log(`fixing image url: ${image.src} -> ${url}`);
+                image.src = url.toString();
+            } else {
+                throw e;
+            }
+        }
+    }
+}
+
 async function getArticle(url) {
     const resp = await axios({
         method: 'get',
         url: url,
         responseType: 'string'
     });
-    const dom = new JSDOM(resp.data);
+    const dom = new JSDOM(resp);
+    makeImageSrcsAbsolute(dom.window.document, url);
     const reader = new Readability(dom.window.document);
     return reader.parse()
 }
