@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { Readability } from '@mozilla/readability';
 import { JSDOM } from 'jsdom';
 import process from 'process';
@@ -26,12 +25,7 @@ function makeImageSrcsAbsolute(document, base) {
 }
 
 async function getArticle(url) {
-    const resp = await axios({
-        method: 'get',
-        url: url,
-        responseType: 'string'
-    });
-    const dom = new JSDOM(resp);
+    const dom = new JSDOM(url);
     makeImageSrcsAbsolute(dom.window.document, url);
     const reader = new Readability(dom.window.document);
     return reader.parse()
