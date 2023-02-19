@@ -14,7 +14,7 @@ function makeImageSrcsAbsolute(document, base) {
         try {
             const _url = new URL(image.src);
         } catch (e) {
-            if (e instanceof TypeError && e.code == "ERR_INVALID_URL") {
+            if (e instanceof TypeError && e.name == "ERR_INVALID_URL") {
                 const url = new URL(image.src, base);
                 console.log(`fixing image url: ${image.src} -> ${url}`);
                 image.src = url.toString();
@@ -37,6 +37,7 @@ async function epubFromArticles(title, articles, path) {
         title,
         verbose: true,
         author: "article2epub",
+        description: "",
         content: articles.map(a => ({ title: a.title, author: a.author, data: a.content }))
     }
 
@@ -84,8 +85,9 @@ async function rssToEpubSeparate(url, outDir) {
             let options = {
                 title: article.title,
                 author: article.byline,
-                date: new Date(item.pubDate),
-                content: [{ data: article.content }]
+                description: article.excerpt,
+                // date: new Date(item.pubDate),
+                content: [{ title: article.title, data: article.content }]
             }
 
             let epub = new EPub(options, epubFile);
@@ -99,4 +101,8 @@ async function rssToEpubSeparate(url, outDir) {
 }
 
 
-await rssToEpubSeparate(process.argv[2], path.resolve(process.argv[3]));
+
+
+(async () => {
+    await rssToEpubSeparate(process.argv[2], path.resolve(process.argv[3]));
+})()
