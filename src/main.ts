@@ -169,6 +169,53 @@ class FeedMailer {
         return articleId in this._cache && this._cache[articleId].sentTo.indexOf(this.targetEmail) >= 0;
     }
 
+    async downloadFeedItems() {
+        if (!fs.existsSync(this._directory)) {
+            fs.mkdirSync(this._directory);
+        }
+
+        const feedParser = new RSSParser();
+        const feed = await feedParser.parseURL(this._feed);
+        for (const item of feed.items) {
+            let url = new URL(item.link);
+            url.hash = "";
+            const hasher = createHash('md5');
+            hasher.update(url.toString());
+            const id = hasher.digest().toString('hex');
+
+            if (!(id in this._cache)) {
+                this._cache[id] = { sentTo: [] }
+            }
+            // TODO check for hash collisions
+            this._cache[id].feedItem = item;
+
+            const epubFile = path.join(this._directory, id + ".epub");
+            if (fs.existsSync(epubFile)) {
+                console.log(`skipping ${item.link}, already converted (${id}.epub)`);
+                continue;
+            }
+
+            try {
+                const article = await getArticle(item.link);
+                let options = {
+                    title: article.title,
+                    author: article.byline,
+                    description: article.excerpt,
+                    // date: new Date(item.pubDate),
+                    content: [{ title: article.title, data: article.content }]
+                }
+
+                let epub = new EPub(options, epubFile);
+                await epub.render();
+            } catch (e) {
+                console.error(`failed to parse article '${item.title}': ${e}`);
+                continue;
+            }
+
+        }
+    }
+
+
     async sendAll(ignoreCache = false) {
         for (const file of fs.readdirSync(this._directory)) {
             if (path.extname(file) != ".epub") continue;
