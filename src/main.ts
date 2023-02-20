@@ -103,7 +103,7 @@ async function rssToEpubSeparate(url, outDir) {
 
 type FeedCacheArticle = {
     sentTo: string[];
-    feedItem: RSSParser.Item;
+    feedItem?: RSSParser.Item;
 };
 
 type FeedCache = {
@@ -145,8 +145,8 @@ class FeedMailer {
 
     async sendArticle(id: string) {
         let subject = `rss2epub Article ${id}`;
-        if (id in this._cache) {
-            subject = this._cache[id].feedItem.title;
+        if (id in this._cache && this._cache[id].feedItem) {
+            subject = this._cache[id].feedItem.title || subject;
         }
 
         await this._mailTransport.sendMail({
@@ -157,6 +157,12 @@ class FeedMailer {
                 content: fs.createReadStream(path.join(this._directory, `${id}.epub`))
             }]
         });
+
+        if (!(id in this._cache)) {
+            this._cache[id] = { sentTo: [] };
+        }
+        this._cache[id].sentTo.push(this.targetEmail);
+
     }
 
     articleSent(articleId: string): boolean {
