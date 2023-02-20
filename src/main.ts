@@ -258,7 +258,9 @@ class FeedMailer {
             if (path.extname(file) != ".epub") continue;
 
             const articleId = path.basename(file, ".epub");
-            if (!ignoreCache && !this.articleSent(articleId)) continue;
+            if (!ignoreCache && this.articleSent(articleId)) continue;
+            this.sendArticle(articleId);
+            break;
         }
     }
 }
