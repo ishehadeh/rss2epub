@@ -110,19 +110,28 @@ type FeedCache = {
     [key: string]: FeedCacheArticle
 };
 
+type FeedMailerConfig = {
+    feed: string,
+    epubDir: string,
+    toEmail: string,
+    transport: nodemailer.TransportOptions,
+};
+
 class FeedMailer {
     _directory: string
     _cachePath: string
     _cache: FeedCache
+    _feed: string
     _mailTransport: nodemailer.Transporter
     targetEmail: string
 
-    constructor(dir: string, targetEmail: string, transport: nodemailer.Transporter) {
-        this._directory = dir;
+    constructor(config: FeedMailerConfig) {
+        this._directory = config.epubDir;
         this._cache = {};
         this._cachePath = path.join(this._directory, ".rss2epub.json")
-        this._mailTransport = transport;
-        this.targetEmail = targetEmail;
+        this._mailTransport = nodemailer.createTransport(config.transport);
+        this._feed = config.feed;
+        this.targetEmail = config.toEmail;
     }
 
     readCache() {
