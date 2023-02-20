@@ -250,5 +250,23 @@ class FeedMailer {
 
 
 (async () => {
-    await rssToEpubSeparate(process.argv[2], path.resolve(process.argv[3]));
+
+    const config: FeedMailerConfig = JSON.parse(fs.readFileSync(process.argv[2], { encoding: "utf-8" }));
+    const mailer = new FeedMailer(config);
+    for (let argi = 3; argi < process.argv.length; ++argi) {
+        const command = process.argv[argi];
+        switch (command) {
+            case "sync": {
+                await mailer.downloadFeedItems();
+                break;
+            }
+            case "send": {
+                await mailer.sendAll();
+                break;
+            }
+            default: {
+                console.error("unknwon command '" + command + "'")
+            }
+        }
+    }
 })()
