@@ -265,7 +265,6 @@ class FeedMailer {
             const articleId = path.basename(file, ".epub");
             if (!ignoreCache && this.articleSent(articleId)) continue;
             this.sendArticle(articleId);
-            break;
         }
     }
 }
