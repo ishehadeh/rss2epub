@@ -114,6 +114,7 @@ type FeedMailerConfig = {
     feed: string,
     epubDir: string,
     mail?: {
+        from: string,
         to: string,
         transport: nodemailer.TransportOptions,
     }
@@ -128,6 +129,7 @@ class FeedMailer {
     _mail?: {
         transport: nodemailer.Transporter
         to: string
+        from: string
     }
 
     constructor(config: FeedMailerConfig) {
@@ -139,6 +141,7 @@ class FeedMailer {
             this._mail = {
                 transport: nodemailer.createTransport(config.mail.transport),
                 to: config.mail.to,
+                from: config.mail.from
             }
         }
 
@@ -181,11 +184,13 @@ class FeedMailer {
         }
 
         await this._mail.transport.sendMail({
+            from: this._mail.from,
             to: this._mail.to,
             subject,
+            html: "<div dir=\"auto\"></div>",
             attachments: [{   // stream as an attachment
                 filename: `${id}.epub`,
-                content: fs.createReadStream(path.join(this._directory, `${id}.epub`))
+                path: path.join(this._directory, `${id}.epub`)
             }]
         });
 
