@@ -113,25 +113,36 @@ type FeedCache = {
 type FeedMailerConfig = {
     feed: string,
     epubDir: string,
-    toEmail: string,
-    transport: nodemailer.TransportOptions,
+    mail?: {
+        to: string,
+        transport: nodemailer.TransportOptions,
+    }
 };
 
 class FeedMailer {
+
     _directory: string
     _cachePath: string
     _cache: FeedCache
     _feed: string
-    _mailTransport: nodemailer.Transporter
-    targetEmail: string
+    _mail?: {
+        transport: nodemailer.Transporter
+        to: string
+    }
 
     constructor(config: FeedMailerConfig) {
         this._directory = config.epubDir;
         this._cache = {};
-        this._cachePath = path.join(this._directory, ".rss2epub.json")
-        this._mailTransport = nodemailer.createTransport(config.transport);
+        this._cachePath = path.join(this._directory, ".rss2epub.json");
+
+        if (config.mail) {
+            this._mail = {
+                transport: nodemailer.createTransport(config.mail.transport),
+                to: config.mail.to,
+            }
+        }
+
         this._feed = config.feed;
-        this.targetEmail = config.toEmail;
     }
 
     readCache() {
@@ -144,13 +155,17 @@ class FeedMailer {
     }
 
     async sendArticle(id: string) {
+        if (!this._mail) {
+            throw new Error(`cannot send article ${id}, no mail config`);
+        }
+
         let subject = `rss2epub Article ${id}`;
         if (id in this._cache && this._cache[id].feedItem) {
             subject = this._cache[id].feedItem.title || subject;
         }
 
-        await this._mailTransport.sendMail({
-            to: this.targetEmail,
+        await this._mail.transport.sendMail({
+            to: this._mail.to,
             subject,
             attachments: [{   // stream as an attachment
                 filename: `${id}.epub`,
@@ -161,12 +176,12 @@ class FeedMailer {
         if (!(id in this._cache)) {
             this._cache[id] = { sentTo: [] };
         }
-        this._cache[id].sentTo.push(this.targetEmail);
+        this._cache[id].sentTo.push(this._mail.to);
 
     }
 
     articleSent(articleId: string): boolean {
-        return articleId in this._cache && this._cache[articleId].sentTo.indexOf(this.targetEmail) >= 0;
+        return articleId in this._cache && this._cache[articleId].sentTo.indexOf(this._mail.to) >= 0;
     }
 
     async downloadFeedItems() {
@@ -217,6 +232,10 @@ class FeedMailer {
 
 
     async sendAll(ignoreCache = false) {
+        if (!this._mail) {
+            throw new Error(`cannot send articles, no mail config`);
+        }
+
         for (const file of fs.readdirSync(this._directory)) {
             if (path.extname(file) != ".epub") continue;
 
