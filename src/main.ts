@@ -146,11 +146,27 @@ class FeedMailer {
     }
 
     readCache() {
-        const cacheText = fs.readFileSync(this._cachePath, { encoding: 'utf-8' })
-        this._cache = Object.assign(this._cache, JSON.parse(cacheText));
+        if (!fs.existsSync(this._directory)) {
+            fs.mkdirSync(this._directory);
+        }
+
+        try {
+            const cacheText = fs.readFileSync(this._cachePath, { encoding: 'utf-8' })
+            this._cache = Object.assign(this._cache, JSON.parse(cacheText));
+        } catch (e) {
+            if ('code' in e && e.code == "ENOENT") {
+                // no cache file, that's fine
+            } else {
+                throw e;
+            }
+        }
     }
 
     writeCache() {
+        if (!fs.existsSync(this._directory)) {
+            fs.mkdirSync(this._directory);
+        }
+
         fs.writeFileSync(this._cachePath, JSON.stringify(this._cache), { encoding: "utf-8" });
     }
 
@@ -177,6 +193,7 @@ class FeedMailer {
             this._cache[id] = { sentTo: [] };
         }
         this._cache[id].sentTo.push(this._mail.to);
+        this.writeCache();
 
     }
 
@@ -185,9 +202,7 @@ class FeedMailer {
     }
 
     async downloadFeedItems() {
-        if (!fs.existsSync(this._directory)) {
-            fs.mkdirSync(this._directory);
-        }
+        this.readCache()
 
         const feedParser = new RSSParser();
         const feed = await feedParser.parseURL(this._feed);
@@ -228,6 +243,8 @@ class FeedMailer {
             }
 
         }
+
+        this.writeCache()
     }
 
 
@@ -236,13 +253,12 @@ class FeedMailer {
             throw new Error(`cannot send articles, no mail config`);
         }
 
+        this.readCache();
         for (const file of fs.readdirSync(this._directory)) {
             if (path.extname(file) != ".epub") continue;
 
             const articleId = path.basename(file, ".epub");
             if (!ignoreCache && !this.articleSent(articleId)) continue;
-
-
         }
     }
 }
