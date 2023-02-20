@@ -161,7 +161,7 @@ class FeedMailer {
 
         let subject = `rss2epub Article ${id}`;
         if (id in this._cache && this._cache[id].feedItem) {
-            subject = this._cache[id].feedItem.title || subject;
+            subject = `rss2epub: ${this._cache[id].feedItem.title}` || subject;
         }
 
         await this._mail.transport.sendMail({
