@@ -4,8 +4,9 @@ import process from 'process';
 import { EPub } from '@lesjoursfr/html-to-epub';
 import RSSParser from 'rss-parser';
 import path from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import fs from 'fs';
 import { createHash } from 'crypto';
+import nodemailer from 'nodemailer';
 
 // try to make all img src that fail to parse as a URL relative to `base`
 function makeImageSrcsAbsolute(document, base) {
@@ -62,8 +63,8 @@ async function rssToEpub(url, outPath) {
 }
 
 async function rssToEpubSeparate(url, outDir) {
-    if (!existsSync(outDir)) {
-        mkdirSync(outDir);
+    if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir);
     }
 
     const feedParser = new RSSParser();
@@ -75,7 +76,7 @@ async function rssToEpubSeparate(url, outDir) {
         hasher.update(url.toString());
         const filename = hasher.digest().toString('hex');
         const epubFile = path.join(outDir, filename + ".epub");
-        if (existsSync(epubFile)) {
+        if (fs.existsSync(epubFile)) {
             console.log(`skipping ${item.link}, already converted (${filename}.epub)`);
             continue;
         }
@@ -100,6 +101,70 @@ async function rssToEpubSeparate(url, outDir) {
     }
 }
 
+type FeedCacheArticle = {
+    sentTo: string[];
+    feedItem: RSSParser.Item;
+};
+
+type FeedCache = {
+    [key: string]: FeedCacheArticle
+};
+
+class FeedMailer {
+    _directory: string
+    _cachePath: string
+    _cache: FeedCache
+    _mailTransport: nodemailer.Transporter
+    targetEmail: string
+
+    constructor(dir: string, targetEmail: string, transport: nodemailer.Transporter) {
+        this._directory = dir;
+        this._cache = {};
+        this._cachePath = path.join(this._directory, ".rss2epub.json")
+        this._mailTransport = transport;
+        this.targetEmail = targetEmail;
+    }
+
+    readCache() {
+        const cacheText = fs.readFileSync(this._cachePath, { encoding: 'utf-8' })
+        this._cache = Object.assign(this._cache, JSON.parse(cacheText));
+    }
+
+    writeCache() {
+        fs.writeFileSync(this._cachePath, JSON.stringify(this._cache), { encoding: "utf-8" });
+    }
+
+    async sendArticle(id: string) {
+        let subject = `rss2epub Article ${id}`;
+        if (id in this._cache) {
+            subject = this._cache[id].feedItem.title;
+        }
+
+        await this._mailTransport.sendMail({
+            to: this.targetEmail,
+            subject,
+            attachments: [{   // stream as an attachment
+                filename: `${id}.epub`,
+                content: fs.createReadStream(path.join(this._directory, `${id}.epub`))
+            }]
+        });
+    }
+
+    articleSent(articleId: string): boolean {
+        return articleId in this._cache && this._cache[articleId].sentTo.indexOf(this.targetEmail) >= 0;
+    }
+
+    async sendAll(ignoreCache = false) {
+        for (const file of fs.readdirSync(this._directory)) {
+            if (path.extname(file) != ".epub") continue;
+
+            const articleId = path.basename(file, ".epub");
+            if (!ignoreCache && !this.articleSent(articleId)) continue;
+
+
+        }
+    }
+}
 
 
 
