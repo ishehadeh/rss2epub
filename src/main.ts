@@ -180,15 +180,13 @@ class FeedMailer {
         fs.writeFileSync(this._cachePath, JSON.stringify(this._cache), { encoding: "utf-8" });
     }
 
-    async sendArticle(id: string) {
+    async _sendEpub(epubPath: string, opts?: { subject?: string, filename?: string }) {
         if (!this._mail) {
-            throw new Error(`cannot send article ${id}, no mail config`);
+            throw new Error(`cannot send file ${path}, no mail config`);
         }
 
-        let subject = `rss2epub Article ${id}`;
-        if (id in this._cache && this._cache[id].feedItem) {
-            subject = `rss2epub: ${this._cache[id].feedItem.title}` || subject;
-        }
+        const filename = opts?.filename || path.basename(epubPath);
+        const subject = opts?.subject || `rss2epub: ${filename}`;
 
         await this._mail.transport.sendMail({
             from: this._mail.from,
@@ -196,17 +194,10 @@ class FeedMailer {
             subject,
             html: "<div dir=\"auto\"></div>",
             attachments: [{   // stream as an attachment
-                filename: `${id}.epub`,
-                path: path.join(this._directory, `${id}.epub`)
+                filename,
+                path: epubPath
             }]
         });
-
-        if (!(id in this._cache)) {
-            this._cache[id] = { sentTo: [] };
-        }
-        this._cache[id].sentTo.push(this._mail.to);
-        this.writeCache();
-
     }
 
     articleSent(articleId: string): boolean {
@@ -256,19 +247,64 @@ class FeedMailer {
         this.writeCache()
     }
 
+    makeEpub(articleIds: string[], outPath: string, opts?: { title?: string, description?: string, date?: Date, author?: string | string[] }) {
 
-    async sendAll(ignoreCache = false) {
+        // first gather all articles and their content, to make sure there's no errors
+        let articles: [FeedCacheArticle, string][] = [];
+        for (const articleId of articleIds) {
+            if (!(articleId in this._cache)) {
+                throw new Error(`no article with id "${articleId}"`);
+            }
+
+            try {
+                const content = fs.readFileSync(path.join(this._directory, `${articleId}.html`), { encoding: 'utf-8' });
+                articles.push([this._cache[articleId], content]);
+            } catch (e) {
+                if ('code' in e && e.code == "ENOENT") {
+                    throw new Error(`bad cache: article has entry, but no corrosponding content. id="${articleId}"`);
+                } else {
+                    throw e;
+                }
+            }
+        }
+
+        let epubOptions = {
+            title: opts?.title,
+            description: opts?.description,
+            date: opts?.date?.toISOString(),
+            author: opts?.author,
+
+            content: articles.map(([a, content]) => ({ title: a.feedItem.title, data: content }))
+        };
+
+        // if there's one article, inherit that metadata for the ebook
+        if (articles.length == 1) {
+            epubOptions.title ??= articles[0][0].feedItem.title;
+            epubOptions.description ??= articles[0][0].readabilityMeta.excerpt;
+            epubOptions.date ??= articles[0][0].feedItem.isoDate;
+            epubOptions.author ??= articles[0][0].readabilityMeta.byline;
+        }
+
+        epubOptions.title ??= `Article Collection, Generated ${(new Date()).toDateString()}`;
+        epubOptions.description ??= "Included Articles:\n" + articles.map(a => a[0][0].feedItem.title).join("\n");
+        epubOptions.date ??= (new Date()).toISOString();
+        epubOptions.author ??= articles.map(a => a[0].readabilityMeta.byline);
+
+        return new EPub(epubOptions, outPath);
+    }
+
+    async sendAllIndividual() {
         if (!this._mail) {
             throw new Error(`cannot send articles, no mail config`);
         }
 
         this.readCache();
-        for (const file of fs.readdirSync(this._directory)) {
-            if (path.extname(file) != ".epub") continue;
-
-            const articleId = path.basename(file, ".epub");
-            if (!ignoreCache && this.articleSent(articleId)) continue;
-            this.sendArticle(articleId);
+        const epubPath = path.join(this._directory, "temp.epub");
+        for (const [articleId, _] of Object.entries(this._cache).filter(([_, v]) => v.sentTo.indexOf(this._mail.to) < 0)) {
+            const epub = this.makeEpub([articleId], epubPath);
+            const filenameTitle = epub.title.replace((/[\/\\\:\*\?\"\'\<\>\|]/ig), '').trim();
+            await epub.render();
+            await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` })
         }
     }
 }
@@ -287,7 +323,7 @@ class FeedMailer {
                 break;
             }
             case "send": {
-                await mailer.sendAll();
+                await mailer.sendAllIndividual();
                 break;
             }
             default: {
