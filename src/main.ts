@@ -104,6 +104,13 @@ async function rssToEpubSeparate(url, outDir) {
 type FeedCacheArticle = {
     sentTo: string[];
     feedItem?: RSSParser.Item;
+    readabilityMeta?: {
+        title: string;
+        byline: string;
+        length: number;
+        excerpt: string;
+        siteName: string;
+    }
 };
 
 type FeedCache = {
@@ -218,30 +225,27 @@ class FeedMailer {
             hasher.update(url.toString());
             const id = hasher.digest().toString('hex');
 
-            if (!(id in this._cache)) {
-                this._cache[id] = { sentTo: [] }
-            }
-            // TODO check for hash collisions
-            this._cache[id].feedItem = item;
-
-            const epubFile = path.join(this._directory, id + ".epub");
-            if (fs.existsSync(epubFile)) {
-                console.log(`skipping ${item.link}, already converted (${id}.epub)`);
+            if (id in this._cache) {
+                console.log(`skipping ${item.link}, exists in cache)`);
                 continue;
             }
 
+
+            const articleFile = path.join(this._directory, id + ".html");
             try {
                 const article = await getArticle(item.link);
-                let options = {
-                    title: article.title,
-                    author: article.byline,
-                    description: article.excerpt,
-                    // date: new Date(item.pubDate),
-                    content: [{ title: article.title, data: article.content }]
+                fs.writeFileSync(articleFile, article.content);
+                this._cache[id] = {
+                    sentTo: [],
+                    feedItem: item,
+                    readabilityMeta: {
+                        title: article.title,
+                        byline: article.byline,
+                        length: article.length,
+                        excerpt: article.excerpt,
+                        siteName: article.siteName
+                    }
                 }
-
-                let epub = new EPub(options, epubFile);
-                await epub.render();
             } catch (e) {
                 console.error(`failed to parse article '${item.title}': ${e}`);
                 continue;
