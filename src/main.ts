@@ -221,7 +221,7 @@ class FeedMailer {
         }
 
         epubOptions.title ??= `Article Collection, Generated ${new Date().toDateString()}`;
-        epubOptions.description ??= "Included Articles:\n" + articles.map(a => a[0][0].feedItem.title).join("\n");
+        epubOptions.description ??= "Included Articles:\n" + articles.map(a => a[0].feedItem.title).join("\n");
         epubOptions.date ??= new Date().toISOString();
         epubOptions.author ??= articles.map(a => a[0].readabilityMeta.byline);
 
@@ -244,6 +244,26 @@ class FeedMailer {
             await epub.render();
             await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
         }
+        this.writeCache();
+    }
+
+    async sendAllAmalgamate() {
+        if (!this._mail) {
+            throw new Error(`cannot send articles, no mail config`);
+        }
+
+        this.readCache();
+        const epubPath = path.join(this._directory, "temp.epub");
+        const unsentArticleIds = Object.entries(this._cache)
+            .filter(([_, v]) => !v.sentTo.includes(this._mail.to))
+            .map(([id, _]) => id);
+
+        const epub = this.makeEpub(unsentArticleIds, epubPath);
+        const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
+        await epub.render();
+        await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
+
+        this.writeCache();
     }
 }
 
@@ -257,8 +277,12 @@ class FeedMailer {
                 await mailer.downloadFeedItems();
                 break;
             }
-            case "send": {
+            case "send-indiviudal": {
                 await mailer.sendAllIndividual();
+                break;
+            }
+            case "send-amalgamate": {
+                await mailer.sendAllAmalgamate();
                 break;
             }
             default: {
