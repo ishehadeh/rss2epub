@@ -35,6 +35,7 @@ async function getArticle(url) {
 
 type FeedCacheArticle = {
     sentTo: string[];
+    deleted: boolean;
     feedItem?: RSSParser.Item;
     readabilityMeta?: {
         title: string;
@@ -143,6 +144,8 @@ class FeedMailer {
 
         const feedParser = new RSSParser();
         const feed = await feedParser.parseURL(this._feed);
+        const idsInFeed = [];
+
         for (const item of feed.items) {
             const url = new URL(item.link);
             url.hash = "";
@@ -150,6 +153,7 @@ class FeedMailer {
             hasher.update(url.toString());
             const id = hasher.digest().toString("hex");
 
+            idsInFeed.push(id);
             if (id in this._cache) {
                 console.log(`skipping ${item.link}, exists in cache)`);
                 continue;
@@ -161,6 +165,7 @@ class FeedMailer {
                 fs.writeFileSync(articleFile, article.content);
                 this._cache[id] = {
                     sentTo: [],
+                    deleted: false,
                     feedItem: item,
                     readabilityMeta: {
                         title: article.title,
@@ -176,7 +181,19 @@ class FeedMailer {
             }
         }
 
+        for (const id in this._cache) {
+            if (!idsInFeed.includes(id)) {
+                this._cache[id].deleted = true;
+            }
+        }
+
         this.writeCache();
+    }
+
+    getUnsent(to?: string): Iterable<[string, FeedCacheArticle]> {
+        return Object.entries(this._cache).filter(
+            ([_, a]) => !a.deleted && (to != undefined || !a.sentTo.includes(to)),
+        );
     }
 
     makeEpub(
@@ -235,10 +252,7 @@ class FeedMailer {
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        const unsentArticleIds = Object.entries(this._cache)
-            .filter(([_, v]) => !v.sentTo.includes(this._mail.to))
-            .map(([id, _]) => id);
-        for (const articleId of unsentArticleIds) {
+        for (const [articleId, _] of this.getUnsent()) {
             const epub = this.makeEpub([articleId], epubPath);
             const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
             await epub.render();
@@ -247,18 +261,28 @@ class FeedMailer {
         this.writeCache();
     }
 
-    async sendAllAmalgamate() {
+    async sendAllAmalgamate(opts: { cronological?: boolean; reversed?: boolean } = {}) {
         if (!this._mail) {
             throw new Error(`cannot send articles, no mail config`);
         }
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        const unsentArticleIds = Object.entries(this._cache)
-            .filter(([_, v]) => !v.sentTo.includes(this._mail.to))
-            .map(([id, _]) => id);
+        const unsentArticleIds = new Array(...this.getUnsent());
+        if (opts.cronological) {
+            unsentArticleIds.sort(
+                ([_0, a1], [_1, a2]) => Date.parse(a1.feedItem.isoDate) - Date.parse(a2.feedItem.isoDate),
+            );
+        }
 
-        const epub = this.makeEpub(unsentArticleIds, epubPath);
+        if (opts.reversed) {
+            unsentArticleIds.reverse();
+        }
+
+        const epub = this.makeEpub(
+            unsentArticleIds.map(([id, _]) => id),
+            epubPath,
+        );
         const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
         await epub.render();
         await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
@@ -282,7 +306,7 @@ class FeedMailer {
                 break;
             }
             case "send-amalgamate": {
-                await mailer.sendAllAmalgamate();
+                await mailer.sendAllAmalgamate({ cronological: true, reversed: true });
                 break;
             }
             default: {
