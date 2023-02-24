@@ -252,11 +252,12 @@ class FeedMailer {
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        for (const [articleId, _] of this.getUnsent()) {
+        for (const [articleId, article] of this.getUnsent(this._mail.to)) {
             const epub = this.makeEpub([articleId], epubPath);
             const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
             await epub.render();
             await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
+            article.sentTo.push(this._mail.to);
         }
         this.writeCache();
     }
@@ -268,7 +269,7 @@ class FeedMailer {
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        const unsentArticleIds = new Array(...this.getUnsent());
+        const unsentArticleIds = new Array(...this.getUnsent(this._mail.to));
         if (opts.cronological) {
             unsentArticleIds.sort(
                 ([_0, a1], [_1, a2]) => Date.parse(a1.feedItem.isoDate) - Date.parse(a2.feedItem.isoDate),
@@ -286,6 +287,7 @@ class FeedMailer {
         const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
         await epub.render();
         await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
+        unsentArticleIds.forEach(([_, a]) => a.sentTo.push(this._mail.to));
 
         this.writeCache();
     }
