@@ -2,7 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import process from "process";
 import { EPub } from "@lesjoursfr/html-to-epub";
-import RSSParser from "rss-parser";
+import FeedExtractor from "@extractus/feed-extractor";
 import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
@@ -33,10 +33,18 @@ async function getArticle(url) {
     return reader.parse();
 }
 
+type FeedItem = {
+    title: string;
+    id: string;
+    pubDate?: Date;
+    link?: string;
+    description?: string;
+};
+
 type FeedCacheArticle = {
     sentTo: string[];
     deleted: boolean;
-    feedItem?: RSSParser.Item;
+    feedItem?: FeedItem;
     readabilityMeta?: {
         title: string;
         byline: string;
@@ -142,11 +150,10 @@ class FeedMailer {
     async downloadFeedItems() {
         this.readCache();
 
-        const feedParser = new RSSParser();
-        const feed = await feedParser.parseURL(this._feed);
+        const feed = await FeedExtractor.extract(this._feed);
         const idsInFeed = [];
 
-        for (const item of feed.items) {
+        for (const item of feed.entries || []) {
             const url = new URL(item.link);
             url.hash = "";
             const hasher = createHash("md5");
@@ -166,7 +173,13 @@ class FeedMailer {
                 this._cache[id] = {
                     sentTo: [],
                     deleted: false,
-                    feedItem: item,
+                    feedItem: {
+                        title: item.title,
+                        id: item.id,
+                        link: item.link,
+                        pubDate: item.published,
+                        description: item.description,
+                    },
                     readabilityMeta: {
                         title: article.title,
                         byline: article.byline,
@@ -233,7 +246,7 @@ class FeedMailer {
         if (articles.length == 1) {
             epubOptions.title ??= articles[0][0].feedItem.title;
             epubOptions.description ??= articles[0][0].readabilityMeta.excerpt;
-            epubOptions.date ??= articles[0][0].feedItem.isoDate;
+            epubOptions.date ??= articles[0][0].feedItem.pubDate.toISOString();
             epubOptions.author ??= articles[0][0].readabilityMeta.byline;
         }
 
@@ -272,7 +285,7 @@ class FeedMailer {
         const unsentArticleIds = new Array(...this.getUnsent(this._mail.to));
         if (opts.cronological) {
             unsentArticleIds.sort(
-                ([_0, a1], [_1, a2]) => Date.parse(a1.feedItem.isoDate) - Date.parse(a2.feedItem.isoDate),
+                ([_0, a1], [_1, a2]) => a1.feedItem.pubDate?.getTime() ?? 0 - a2.feedItem.pubDate?.getTime() ?? 0,
             );
         }
 
