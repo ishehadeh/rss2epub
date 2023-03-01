@@ -33,6 +33,8 @@ async function getArticle(url) {
     return reader.parse();
 }
 
+/** Notable fields for an article from the RSS/Atom/JSON feed
+ */
 type FeedItem = {
     title: string;
     id: string;
@@ -41,19 +43,25 @@ type FeedItem = {
     description?: string;
 };
 
+/** Metadadata extracted by the reader-view implementation
+ */
+type ArticleMetadata = {
+    title: string;
+    byline: string;
+    length: number;
+    excerpt: string;
+    siteName: string;
+};
+
+/** Cached article entry */
 type FeedCacheArticle = {
     sentTo: string[];
     deleted: boolean;
-    feedItem?: FeedItem;
-    readabilityMeta?: {
-        title: string;
-        byline: string;
-        length: number;
-        excerpt: string;
-        siteName: string;
-    };
+    feedItem: FeedItem;
+    readabilityMeta: ArticleMetadata;
 };
 
+/** A map of cache ID (md5sum of link, right now) to feed entries */
 type FeedCache = {
     [key: string]: FeedCacheArticle;
 };
