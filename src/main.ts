@@ -204,7 +204,7 @@ class FeedMailer {
                         title: item.title,
                         id: item.id,
                         link: item.link,
-                        pubDate: item.published.toISOString(),
+                        pubDate: item.published ? new Date(item.published).toISOString() : undefined,
                         description: item.description,
                     },
                     readabilityMeta: {
