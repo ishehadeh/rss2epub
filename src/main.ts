@@ -2,7 +2,7 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import process from "process";
 import { EPub } from "@lesjoursfr/html-to-epub";
-import FeedExtractor from "@extractus/feed-extractor";
+import { extract } from "@extractus/feed-extractor";
 import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
@@ -38,7 +38,7 @@ async function getArticle(url) {
 type FeedItem = {
     title: string;
     id: string;
-    pubDate?: Date;
+    pubDate?: string;
     link?: string;
     description?: string;
 };
@@ -55,15 +55,27 @@ type ArticleMetadata = {
 
 /** Cached article entry */
 type FeedCacheArticle = {
-    sentTo: string[];
     deleted: boolean;
     feedItem: FeedItem;
     readabilityMeta: ArticleMetadata;
 };
 
+type SendStatus = "FAILED" | "SUCCESS";
+
+/** A list of attempts to send emails */
+type SendLogEntry = {
+    sentAt: string;
+    sentTo: string;
+    articlesSent: string[];
+    status: SendStatus;
+};
+
 /** A map of cache ID (md5sum of link, right now) to feed entries */
 type FeedCache = {
-    [key: string]: FeedCacheArticle;
+    emails: SendLogEntry[];
+    articles: {
+        [key: string]: FeedCacheArticle;
+    };
 };
 
 type FeedMailerConfig = {
@@ -89,7 +101,10 @@ class FeedMailer {
 
     constructor(config: FeedMailerConfig) {
         this._directory = config.epubDir;
-        this._cache = {};
+        this._cache = {
+            articles: {},
+            emails: [],
+        };
         this._cachePath = path.join(this._directory, ".rss2epub.json");
 
         if (config.mail) {
@@ -128,6 +143,14 @@ class FeedMailer {
         fs.writeFileSync(this._cachePath, JSON.stringify(this._cache), { encoding: "utf-8" });
     }
 
+    _getArticleById(id: string): FeedCacheArticle {
+        return this._cache.articles[id];
+    }
+
+    _isArticleCached(id: string): boolean {
+        return id in this._cache.articles;
+    }
+
     async _sendEpub(epubPath: string, opts?: { subject?: string; filename?: string }) {
         if (!this._mail) {
             throw new Error(`cannot send file ${path}, no mail config`);
@@ -151,14 +174,10 @@ class FeedMailer {
         });
     }
 
-    articleSent(articleId: string): boolean {
-        return articleId in this._cache && this._cache[articleId].sentTo.indexOf(this._mail.to) >= 0;
-    }
-
     async downloadFeedItems() {
         this.readCache();
 
-        const feed = await FeedExtractor.extract(this._feed);
+        const feed = await extract(this._feed);
         const idsInFeed = [];
 
         for (const item of feed.entries || []) {
@@ -169,7 +188,8 @@ class FeedMailer {
             const id = hasher.digest().toString("hex");
 
             idsInFeed.push(id);
-            if (id in this._cache) {
+            if (this._getArticleById(id) != undefined) {
+                // TODO check for collision
                 console.log(`skipping ${item.link}, exists in cache)`);
                 continue;
             }
@@ -178,14 +198,13 @@ class FeedMailer {
             try {
                 const article = await getArticle(item.link);
                 fs.writeFileSync(articleFile, article.content);
-                this._cache[id] = {
-                    sentTo: [],
+                this._cache.articles[id] = {
                     deleted: false,
                     feedItem: {
                         title: item.title,
                         id: item.id,
                         link: item.link,
-                        pubDate: item.published,
+                        pubDate: item.published.toISOString(),
                         description: item.description,
                     },
                     readabilityMeta: {
@@ -202,19 +221,24 @@ class FeedMailer {
             }
         }
 
-        for (const id in this._cache) {
+        for (const id in this._cache.articles) {
             if (!idsInFeed.includes(id)) {
-                this._cache[id].deleted = true;
+                this._getArticleById(id).deleted = true;
             }
         }
 
         this.writeCache();
     }
 
+    getSentArtcleIds(to?: string): Iterable<string> {
+        return this._cache.emails
+            .filter(e => e.status != "SUCCESS" && (!to || e.sentTo == to))
+            .flatMap(e => e.articlesSent);
+    }
+
     getUnsent(to?: string): Iterable<[string, FeedCacheArticle]> {
-        return Object.entries(this._cache).filter(
-            ([_, a]) => !a.deleted && (to != undefined || !a.sentTo.includes(to)),
-        );
+        const sent = this.getSentArtcleIds(to);
+        return Object.entries(this._cache.articles).filter(([id, _a]) => !(id in sent));
     }
 
     makeEpub(
@@ -225,13 +249,13 @@ class FeedMailer {
         // first gather all articles and their content, to make sure there's no errors
         const articles: [FeedCacheArticle, string][] = [];
         for (const articleId of articleIds) {
-            if (!(articleId in this._cache)) {
+            if (!this._isArticleCached(articleId)) {
                 throw new Error(`no article with id "${articleId}"`);
             }
 
             try {
                 const content = fs.readFileSync(path.join(this._directory, `${articleId}.html`), { encoding: "utf-8" });
-                articles.push([this._cache[articleId], content]);
+                articles.push([this._getArticleById(articleId), content]);
             } catch (e) {
                 if ("code" in e && e.code == "ENOENT") {
                     throw new Error(`bad cache: article has entry, but no corrosponding content. id="${articleId}"`);
@@ -254,7 +278,7 @@ class FeedMailer {
         if (articles.length == 1) {
             epubOptions.title ??= articles[0][0].feedItem.title;
             epubOptions.description ??= articles[0][0].readabilityMeta.excerpt;
-            epubOptions.date ??= articles[0][0].feedItem.pubDate.toISOString();
+            epubOptions.date ??= articles[0][0].feedItem.pubDate;
             epubOptions.author ??= articles[0][0].readabilityMeta.byline;
         }
 
@@ -266,6 +290,15 @@ class FeedMailer {
         return new EPub(epubOptions, outPath);
     }
 
+    _logSend(to: string, articles: string[], status: "SUCCESS" | "FAILED") {
+        this._cache.emails.push({
+            sentAt: new Date().toISOString(),
+            sentTo: to,
+            articlesSent: articles,
+            status,
+        });
+    }
+
     async sendAllIndividual() {
         if (!this._mail) {
             throw new Error(`cannot send articles, no mail config`);
@@ -273,12 +306,12 @@ class FeedMailer {
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        for (const [articleId, article] of this.getUnsent(this._mail.to)) {
+        for (const [articleId, _article] of this.getUnsent(this._mail.to)) {
             const epub = this.makeEpub([articleId], epubPath);
             const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
             await epub.render();
             await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
-            article.sentTo.push(this._mail.to);
+            this._logSend(this._mail.to, [articleId], "SUCCESS");
         }
         this.writeCache();
     }
@@ -293,7 +326,7 @@ class FeedMailer {
         const unsentArticleIds = new Array(...this.getUnsent(this._mail.to));
         if (opts.cronological) {
             unsentArticleIds.sort(
-                ([_0, a1], [_1, a2]) => a1.feedItem.pubDate?.getTime() ?? 0 - a2.feedItem.pubDate?.getTime() ?? 0,
+                ([_0, a1], [_1, a2]) => Date.parse(a1.feedItem.pubDate) - Date.parse(a2.feedItem.pubDate),
             );
         }
 
@@ -308,7 +341,12 @@ class FeedMailer {
         const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
         await epub.render();
         await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
-        unsentArticleIds.forEach(([_, a]) => a.sentTo.push(this._mail.to));
+
+        this._logSend(
+            this._mail.to,
+            unsentArticleIds.map(([id, _]) => id),
+            "SUCCESS",
+        );
 
         this.writeCache();
     }
