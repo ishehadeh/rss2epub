@@ -2,33 +2,14 @@ import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import process from "process";
 import { EPub } from "@lesjoursfr/html-to-epub";
-import { extract } from "@extractus/feed-extractor";
 import path from "path";
 import fs from "fs";
 import { createHash } from "crypto";
 import nodemailer from "nodemailer";
-
-// try to make all img src that fail to parse as a URL relative to `base`
-function makeImageSrcsAbsolute(document, base) {
-    const images = document.querySelectorAll("img");
-    for (const image of images) {
-        try {
-            const _url = new URL(image.src);
-        } catch (e) {
-            if (e instanceof TypeError && e.name == "ERR_INVALID_URL") {
-                const url = new URL(image.src, base);
-                console.log(`fixing image url: ${image.src} -> ${url}`);
-                image.src = url.toString();
-            } else {
-                throw e;
-            }
-        }
-    }
-}
+import RSSParser from "rss-parser";
 
 async function getArticle(url) {
     const dom = await JSDOM.fromURL(url);
-    makeImageSrcsAbsolute(dom.window.document, url);
     const reader = new Readability(dom.window.document);
     return reader.parse();
 }
@@ -177,10 +158,12 @@ class FeedMailer {
     async downloadFeedItems() {
         this.readCache();
 
-        const feed = await extract(this._feed);
+        const rssParser = new RSSParser();
+
+        const feed = await rssParser.parseURL(this._feed);
         const idsInFeed = [];
 
-        for (const item of feed.entries || []) {
+        for (const item of feed.items) {
             const url = new URL(item.link);
             url.hash = "";
             const hasher = createHash("md5");
@@ -202,10 +185,10 @@ class FeedMailer {
                     deleted: false,
                     feedItem: {
                         title: item.title,
-                        id: item.id,
+                        id: item.guid,
                         link: item.link,
-                        pubDate: item.published ? new Date(item.published).toISOString() : undefined,
-                        description: item.description,
+                        pubDate: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
+                        description: item.summary,
                     },
                     readabilityMeta: {
                         title: article.title,
