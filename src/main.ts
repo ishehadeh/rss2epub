@@ -213,15 +213,15 @@ class FeedMailer {
         this.writeCache();
     }
 
-    getSentArtcleIds(to?: string): Iterable<string> {
+    getSentArtcleIds(to?: string): string[] {
         return this._cache.emails
-            .filter(e => e.status != "SUCCESS" && (!to || e.sentTo == to))
+            .filter(e => e.status == "SUCCESS" && (!to || e.sentTo == to))
             .flatMap(e => e.articlesSent);
     }
 
     getUnsent(to?: string): Iterable<[string, FeedCacheArticle]> {
         const sent = this.getSentArtcleIds(to);
-        return Object.entries(this._cache.articles).filter(([id, _a]) => !(id in sent));
+        return Object.entries(this._cache.articles).filter(([id, _a]) => !sent.includes(id));
     }
 
     makeEpub(
