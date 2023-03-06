@@ -4,14 +4,83 @@ import process from "process";
 import { EPub } from "@lesjoursfr/html-to-epub";
 import path from "path";
 import fs from "fs";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import nodemailer from "nodemailer";
 import RSSParser from "rss-parser";
+import { Resvg } from "@resvg/resvg-js";
+import https from "https";
 
-async function getArticle(url) {
-    const dom = await JSDOM.fromURL(url);
-    const reader = new Readability(dom.window.document);
-    return reader.parse();
+async function downloadFile(url: URL | string): Promise<Buffer> {
+    console.log("downloading " + url);
+    return await new Promise((resolve, reject) => {
+        https
+            .get(url, response => {
+                const code = response.statusCode ?? 0;
+
+                if (code >= 400) {
+                    return reject(new Error(response.statusMessage));
+                }
+
+                // handle redirects
+                if (code > 300 && code < 400 && response.headers.location != undefined) {
+                    return resolve(downloadFile(response.headers.location));
+                }
+
+                const chunks = [];
+                response.on("data", chunk => chunks.push(chunk));
+                response.on("end", () => resolve(Buffer.concat(chunks)));
+                response.on("error", e => reject(e));
+            })
+            .on("error", error => {
+                reject(error);
+            });
+    });
+}
+
+type FitMode =
+    | { mode: "original" }
+    | { mode: "width"; value: number }
+    | { mode: "height"; value: number }
+    | { mode: "zoom"; value: number };
+
+async function addSVGFallbacks(
+    document: Document,
+    pictureDir: string,
+    defaultFit: FitMode = { mode: "width", value: 480 },
+) {
+    const images = document.querySelectorAll("img");
+    for (const img of images.values()) {
+        if (img.getAttribute("src").endsWith(".svg")) {
+            console.log("rendering svg '" + img.getAttribute("src") + "'");
+            const imageId = randomUUID(); // TODO: imageId should probably be a content has
+            const imageSVGPath = path.join(pictureDir, imageId + ".svg");
+            const imagePNGPath = path.join(pictureDir, imageId + ".png");
+
+            const svgData = await downloadFile(new URL(img.getAttribute("src"), document.location.href));
+            fs.writeFileSync(imageSVGPath, svgData);
+
+            const width = img.getAttribute("width");
+            const height = img.getAttribute("height");
+            let fitTo = defaultFit;
+            if (height != null) {
+                fitTo = { mode: "height", value: Number.parseFloat(height) };
+            } else if (width != null) {
+                fitTo = { mode: "width", value: Number.parseFloat(width) };
+            }
+            const resvg = new Resvg(svgData, { fitTo });
+            const raster = resvg.render();
+            fs.writeFileSync(imagePNGPath, raster.asPng());
+
+            const pictureElem = document.createElement("picture");
+            const rasterImageElem = <Element>img.cloneNode();
+            rasterImageElem.setAttribute("src", new URL(imagePNGPath, "file://").toString());
+            const svgImageElem = document.createElement("source");
+            svgImageElem.setAttribute("srcset", new URL(imageSVGPath, "file://").toString());
+            pictureElem.appendChild(svgImageElem);
+            pictureElem.appendChild(rasterImageElem);
+            img.replaceWith(pictureElem);
+        }
+    }
 }
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
@@ -99,6 +168,18 @@ class FeedMailer {
         this._feed = config.feed;
     }
 
+    async getArticle(url: string) {
+        const dom = await JSDOM.fromURL(url);
+        const imgPath = path.resolve(path.join(this._directory, "img"));
+        if (!fs.existsSync(imgPath)) {
+            fs.mkdirSync(imgPath);
+        }
+
+        await addSVGFallbacks(dom.window.document, imgPath);
+        const reader = new Readability(dom.window.document);
+        return reader.parse();
+    }
+
     readCache() {
         if (!fs.existsSync(this._directory)) {
             fs.mkdirSync(this._directory);
@@ -179,7 +260,7 @@ class FeedMailer {
 
             const articleFile = path.join(this._directory, id + ".html");
             try {
-                const article = await getArticle(item.link);
+                const article = await this.getArticle(item.link);
                 fs.writeFileSync(articleFile, article.content);
                 this._cache.articles[id] = {
                     deleted: false,
