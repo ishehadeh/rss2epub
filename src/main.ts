@@ -51,6 +51,7 @@ async function addSVGFallbacks(
     const images = document.querySelectorAll("img");
     for (const img of images.values()) {
         if (img.getAttribute("src").endsWith(".svg")) {
+            // TODO: download fonts used in SVG
             console.log("rendering svg '" + img.getAttribute("src") + "'");
             const imageId = randomUUID(); // TODO: imageId should probably be a content has
             const imageSVGPath = path.join(pictureDir, imageId + ".svg");
