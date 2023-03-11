@@ -1,7 +1,7 @@
 import { Readability } from "@mozilla/readability";
 import { JSDOM } from "jsdom";
 import process from "process";
-import { EPub } from "@lesjoursfr/html-to-epub";
+import { EPub, EpubContentOptions } from "@lesjoursfr/html-to-epub";
 import path from "path";
 import fs from "fs";
 import { createHash, randomUUID } from "crypto";
@@ -94,21 +94,10 @@ type FeedItem = {
     description?: string;
 };
 
-/** Metadadata extracted by the reader-view implementation
- */
-type ArticleMetadata = {
-    title: string;
-    byline: string;
-    length: number;
-    excerpt: string;
-    siteName: string;
-};
-
 /** Cached article entry */
 type FeedCacheArticle = {
     deleted: boolean;
     feedItem: FeedItem;
-    readabilityMeta: ArticleMetadata;
 };
 
 type SendStatus = "FAILED" | "SUCCESS";
@@ -259,31 +248,16 @@ class FeedMailer {
                 continue;
             }
 
-            const articleFile = path.join(this._directory, id + ".html");
-            try {
-                const article = await this.getArticle(item.link);
-                fs.writeFileSync(articleFile, article.content);
-                this._cache.articles[id] = {
-                    deleted: false,
-                    feedItem: {
-                        title: item.title,
-                        id: item.guid,
-                        link: item.link,
-                        pubDate: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
-                        description: item.summary,
-                    },
-                    readabilityMeta: {
-                        title: article.title,
-                        byline: article.byline,
-                        length: article.length,
-                        excerpt: article.excerpt,
-                        siteName: article.siteName,
-                    },
-                };
-            } catch (e) {
-                console.error(`failed to parse article '${item.title}': ${e}`);
-                continue;
-            }
+            this._cache.articles[id] = {
+                deleted: false,
+                feedItem: {
+                    title: item.title,
+                    id: item.guid,
+                    link: item.link,
+                    pubDate: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
+                    description: item.summary,
+                },
+            };
         }
 
         for (const id in this._cache.articles) {
@@ -306,21 +280,25 @@ class FeedMailer {
         return Object.entries(this._cache.articles).filter(([id, _a]) => !sent.includes(id));
     }
 
-    makeEpub(
+    async makeEpub(
         articleIds: string[],
         outPath: string,
         opts?: { title?: string; description?: string; date?: Date; author?: string | string[] },
     ) {
         // first gather all articles and their content, to make sure there's no errors
-        const articles: [FeedCacheArticle, string][] = [];
+        const chapters: EpubContentOptions[] = [];
         for (const articleId of articleIds) {
             if (!this._isArticleCached(articleId)) {
                 throw new Error(`no article with id "${articleId}"`);
             }
 
+            const article = await this.getArticle(this._cache.articles[articleId].feedItem.link);
             try {
-                const content = fs.readFileSync(path.join(this._directory, `${articleId}.html`), { encoding: "utf-8" });
-                articles.push([this._getArticleById(articleId), content]);
+                chapters.push({
+                    data: article.content,
+                    title: article.title,
+                    author: article.byline,
+                });
             } catch (e) {
                 if ("code" in e && e.code == "ENOENT") {
                     throw new Error(`bad cache: article has entry, but no corrosponding content. id="${articleId}"`);
@@ -336,21 +314,21 @@ class FeedMailer {
             date: opts?.date?.toISOString(),
             author: opts?.author,
 
-            content: articles.map(([a, content]) => ({ title: a.feedItem.title, data: content })),
+            content: chapters,
         };
 
         // if there's one article, inherit that metadata for the ebook
-        if (articles.length == 1) {
-            epubOptions.title ??= articles[0][0].feedItem.title;
-            epubOptions.description ??= articles[0][0].readabilityMeta.excerpt;
-            epubOptions.date ??= articles[0][0].feedItem.pubDate;
-            epubOptions.author ??= articles[0][0].readabilityMeta.byline;
-        }
+        // if (articles.length == 1) {
+        //     epubOptions.title ??= articles[0][0].feedItem.title;
+        //     epubOptions.description ??= articles[0][0].readabilityMeta.excerpt;
+        //     epubOptions.date ??= articles[0][0].feedItem.pubDate;
+        //     epubOptions.author ??= articles[0][0].readabilityMeta.byline;
+        // }
 
         epubOptions.title ??= `Article Collection, Generated ${new Date().toDateString()}`;
-        epubOptions.description ??= "Included Articles:\n" + articles.map(a => a[0].feedItem.title).join("\n");
+        epubOptions.description ??= "Included Articles:\n" + chapters.map(a => "  " + a.title).join("\n");
         epubOptions.date ??= new Date().toISOString();
-        epubOptions.author ??= articles.map(a => a[0].readabilityMeta.byline);
+        epubOptions.author ??= chapters.map(a => (Array.isArray(a.author) ? a.author.join(", ") : a.author));
 
         return new EPub(epubOptions, outPath);
     }
@@ -372,7 +350,7 @@ class FeedMailer {
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
         for (const [articleId, _article] of this.getUnsent(this._mail.to)) {
-            const epub = this.makeEpub([articleId], epubPath);
+            const epub = await this.makeEpub([articleId], epubPath);
             const filenameTitle = epub.title.replace(/[/\\:*?"'<>|]/gi, "").trim();
             await epub.render();
             await this._sendEpub(epubPath, { subject: `rss2epub: ${epub.title}`, filename: `${filenameTitle}.epub` });
@@ -406,7 +384,7 @@ class FeedMailer {
             unsentArticleIds = unsentArticleIds.slice(0, opts.max);
         }
 
-        const epub = this.makeEpub(
+        const epub = await this.makeEpub(
             unsentArticleIds.map(([id, _]) => id),
             epubPath,
         );
