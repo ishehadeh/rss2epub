@@ -8,34 +8,7 @@ import { createHash, randomUUID } from "crypto";
 import nodemailer from "nodemailer";
 import RSSParser from "rss-parser";
 import { Resvg } from "@resvg/resvg-js";
-import https from "https";
-
-async function downloadFile(url: URL | string): Promise<Buffer> {
-    console.log("downloading " + url);
-    return await new Promise((resolve, reject) => {
-        https
-            .get(url, response => {
-                const code = response.statusCode ?? 0;
-
-                if (code >= 400) {
-                    return reject(new Error(response.statusMessage));
-                }
-
-                // handle redirects
-                if (code > 300 && code < 400 && response.headers.location != undefined) {
-                    return resolve(downloadFile(response.headers.location));
-                }
-
-                const chunks = [];
-                response.on("data", chunk => chunks.push(chunk));
-                response.on("end", () => resolve(Buffer.concat(chunks)));
-                response.on("error", e => reject(e));
-            })
-            .on("error", error => {
-                reject(error);
-            });
-    });
-}
+import { downloadFile } from "./util.js";
 
 type FitMode =
     | { mode: "original" }
