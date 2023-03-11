@@ -381,14 +381,15 @@ class FeedMailer {
         this.writeCache();
     }
 
-    async sendAllAmalgamate(opts: { cronological?: boolean; reversed?: boolean } = {}) {
+    async sendAllAmalgamate(opts: { cronological?: boolean; reversed?: boolean; max?: number } = {}) {
         if (!this._mail) {
             throw new Error(`cannot send articles, no mail config`);
         }
 
         this.readCache();
         const epubPath = path.join(this._directory, "temp.epub");
-        const unsentArticleIds = new Array(...this.getUnsent(this._mail.to));
+
+        let unsentArticleIds = new Array(...this.getUnsent(this._mail.to));
         if (opts.cronological) {
             unsentArticleIds.sort(
                 ([_0, a1], [_1, a2]) => Date.parse(a1.feedItem.pubDate) - Date.parse(a2.feedItem.pubDate),
@@ -397,6 +398,12 @@ class FeedMailer {
 
         if (opts.reversed) {
             unsentArticleIds.reverse();
+        }
+
+        if (opts.max) {
+            // crop the output array to be at most opts.max elements long
+            // NOTE: ORDER MATTERS HERE! it's important that this is called *after* sorting and reversing.
+            unsentArticleIds = unsentArticleIds.slice(0, opts.max);
         }
 
         const epub = this.makeEpub(
@@ -432,7 +439,7 @@ class FeedMailer {
                 break;
             }
             case "send-amalgamate": {
-                await mailer.sendAllAmalgamate({ cronological: true, reversed: true });
+                await mailer.sendAllAmalgamate({ cronological: true, reversed: true, max: 20 });
                 break;
             }
             default: {
