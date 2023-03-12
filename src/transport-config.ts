@@ -20,11 +20,7 @@ export type SMTPTransportOptions = BaseTransportOptions & {
     };
 };
 
-export type TransportOptions = SMTPTransportOptions;
-
-export type TransportConfig = {
-    [name: string]: TransportOptions;
-};
+export type TransportConfig = SMTPTransportOptions;
 
 function isSMTPTransportOptions(o: any): o is SMTPTransportOptions {
     return (
@@ -40,12 +36,8 @@ function isSMTPTransportOptions(o: any): o is SMTPTransportOptions {
     );
 }
 
-function isTransportOptions(o: any): o is TransportOptions {
-    return isSMTPTransportOptions(o);
-}
-
 function isTransportConfig(o: any): o is TransportConfig {
-    return typeof o === "object" && Object.entries(o).every(([k, v]) => typeof k == "string" && isTransportOptions(v));
+    return isSMTPTransportOptions(o);
 }
 
 export async function readTransportConfig(configPath: string): Promise<TransportConfig> {
@@ -69,18 +61,11 @@ export async function readTransportConfig(configPath: string): Promise<Transport
 
 export async function buildNodemailerFromTransportConfig(
     configPath: string,
-    transportName: string,
 ): Promise<[BaseTransportOptions, nodemailer.Transporter]> {
-    const logger = MOD_LOGGER.child({ op: "readTransportConfig", configPath: configPath, transportName });
+    const logger = MOD_LOGGER.child({ op: "readTransportConfig", configPath: configPath });
 
-    const config = await readTransportConfig(configPath);
+    const transportConfig = await readTransportConfig(configPath);
 
-    if (!(transportName in config)) {
-        logger.error({ availableTransports: Object.keys(config) }, "transport not in config");
-        throw new Error("transport not in config");
-    }
-
-    const transportConfig = config[transportName];
     if (isSMTPTransportOptions(transportConfig)) {
         const {
             host,
@@ -101,6 +86,9 @@ export async function buildNodemailerFromTransportConfig(
             }),
         ];
     } else {
-        logger.error({ config }, "unreachable! Bad transport type. This should have been checked for already.");
+        logger.error(
+            { transportConfig },
+            "unreachable! Bad transport type. This should have been checked for already.",
+        );
     }
 }

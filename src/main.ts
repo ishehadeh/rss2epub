@@ -255,9 +255,7 @@ const ARG_PARSE_CONFIG: ParseArgsConfig = {
         "transport-config": {
             type: "string",
         },
-        transport: {
-            type: "string",
-        },
+
         to: {
             type: "string",
         },
@@ -300,24 +298,13 @@ async function main(): Promise<number> {
     // TODO: check that out path is writeable?
 
     // basic checks on mail parameters before actually doing any work.
-    if (parameters.to) {
-        assert(typeof parameters.to == "string");
-
-        if (!parameters.transport) {
-            logger.error("transport must be specified to send email");
-            return 1;
-        }
-        assert(typeof parameters.transport == "string");
-
-        if (!parameters["transport-config"]) {
-            parameters["transport-config"] = path.join(
-                process.env["HOME"] || process.env["USERPROFILE"],
-                ".config",
-                "rss2epub",
-                "transports.json",
-            );
-        }
-        assert(typeof parameters["transport-config"] == "string");
+    if (parameters.to && !parameters["transport-config"]) {
+        parameters["transport-config"] = path.join(
+            process.env["HOME"] || process.env["USERPROFILE"],
+            ".config",
+            "rss2epub",
+            "transport.json",
+        );
     }
 
     const feedOpts: FetchArticlesFromFeedOpts = {};
@@ -373,27 +360,11 @@ async function main(): Promise<number> {
 
     if (parameters.to) {
         assert(typeof parameters.to == "string");
-
-        if (!parameters.transport) {
-            logger.error("transport must be specified to send email");
-            return 1;
-        }
-        assert(typeof parameters.transport == "string");
-
-        if (!parameters["transport-config"]) {
-            parameters["transport-config"] = path.join(
-                process.env["HOME"] || process.env["USERPROFILE"],
-                ".config",
-                "rss2epub",
-                "transport.json",
-            );
-        }
         assert(typeof parameters["transport-config"] == "string");
 
         logger.debug({ transport: parameters.transport }, "building transport");
         const [transportOptions, transporter] = await buildNodemailerFromTransportConfig(
             parameters["transport-config"],
-            parameters.transport,
         );
         const filename = "rss2epub-collection.epub";
         await transporter.sendMail({
