@@ -1,61 +1,12 @@
-import { Readability } from "@mozilla/readability";
-import { JSDOM } from "jsdom";
 import process from "process";
 import { EPub, EpubContentOptions } from "@lesjoursfr/html-to-epub";
 import path from "path";
 import fs from "fs";
-import { createHash, randomUUID } from "crypto";
 import nodemailer from "nodemailer";
 import RSSParser from "rss-parser";
-import { Resvg } from "@resvg/resvg-js";
-import { downloadFile } from "./util.js";
-
-type FitMode =
-    | { mode: "original" }
-    | { mode: "width"; value: number }
-    | { mode: "height"; value: number }
-    | { mode: "zoom"; value: number };
-
-async function addSVGFallbacks(
-    document: Document,
-    pictureDir: string,
-    defaultFit: FitMode = { mode: "width", value: 480 },
-) {
-    const images = document.querySelectorAll("img");
-    for (const img of images.values()) {
-        if (img.getAttribute("src").endsWith(".svg")) {
-            // TODO: download fonts used in SVG
-            console.log("rendering svg '" + img.getAttribute("src") + "'");
-            const imageId = randomUUID(); // TODO: imageId should probably be a content has
-            const imageSVGPath = path.join(pictureDir, imageId + ".svg");
-            const imagePNGPath = path.join(pictureDir, imageId + ".png");
-
-            const svgData = await downloadFile(new URL(img.getAttribute("src"), document.location.href));
-            fs.writeFileSync(imageSVGPath, svgData);
-
-            const width = img.getAttribute("width");
-            const height = img.getAttribute("height");
-            let fitTo = defaultFit;
-            if (height != null) {
-                fitTo = { mode: "height", value: Number.parseFloat(height) };
-            } else if (width != null) {
-                fitTo = { mode: "width", value: Number.parseFloat(width) };
-            }
-            const resvg = new Resvg(svgData, { fitTo });
-            const raster = resvg.render();
-            fs.writeFileSync(imagePNGPath, raster.asPng());
-
-            const pictureElem = document.createElement("picture");
-            const rasterImageElem = <Element>img.cloneNode();
-            rasterImageElem.setAttribute("src", new URL(imagePNGPath, "file://").toString());
-            const svgImageElem = document.createElement("source");
-            svgImageElem.setAttribute("srcset", new URL(imageSVGPath, "file://").toString());
-            pictureElem.appendChild(svgImageElem);
-            pictureElem.appendChild(rasterImageElem);
-            img.replaceWith(pictureElem);
-        }
-    }
-}
+import { parseArticle } from "./article.js";
+import { createHash } from "crypto";
+import { ROOT_LOGGER } from "./root-logger.js";
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
  */
@@ -129,18 +80,6 @@ class FeedMailer {
         }
 
         this._feed = config.feed;
-    }
-
-    async getArticle(url: string) {
-        const dom = await JSDOM.fromURL(url);
-        const imgPath = path.resolve(path.join(this._directory, "img"));
-        if (!fs.existsSync(imgPath)) {
-            fs.mkdirSync(imgPath);
-        }
-
-        await addSVGFallbacks(dom.window.document, imgPath);
-        const reader = new Readability(dom.window.document);
-        return reader.parse();
     }
 
     readCache() {
@@ -265,7 +204,26 @@ class FeedMailer {
                 throw new Error(`no article with id "${articleId}"`);
             }
 
-            const article = await this.getArticle(this._cache.articles[articleId].feedItem.link);
+            const articleURL = this._cache.articles[articleId].feedItem.link;
+            const articleFetchResponse = await fetch(articleURL, {
+                headers: {
+                    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss2epub/1",
+                    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                },
+            });
+            if (!articleFetchResponse.ok) {
+                ROOT_LOGGER.warn(
+                    { httpStatusCode: articleFetchResponse.status, httpStatusMessage: articleFetchResponse.statusText },
+                    "failed to fetch article",
+                ); // TODO add a child logger
+                continue;
+            }
+            const articleData = Buffer.from(await articleFetchResponse.arrayBuffer());
+            const article = await parseArticle(articleData, {
+                url: articleURL,
+                contentType: articleFetchResponse.headers.get("Content-Type"),
+            });
+
             try {
                 chapters.push({
                     data: article.content,
