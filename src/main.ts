@@ -4,7 +4,7 @@ import path from "path";
 import fs, { writeFile } from "fs";
 import nodemailer from "nodemailer";
 import RSSParser from "rss-parser";
-import { parseArticle } from "./article.js";
+import { Article, parseArticle } from "./article.js";
 import { createHash } from "crypto";
 import { ROOT_LOGGER } from "./root-logger.js";
 import { ParseArgsConfig } from "node:util";
@@ -12,6 +12,8 @@ import { parseArgs } from "util";
 import { buildNodemailerFromTransportConfig } from "./transport-config.js";
 import assert from "assert";
 import { EPub as EPubMem } from "epub-gen-memory";
+
+const MOD_LOGGER = ROOT_LOGGER.child({ module: "main" });
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
  */
@@ -341,38 +343,16 @@ class FeedMailer {
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss2epub/1";
 
 async function makeEpub(
-    articleURLs: string[],
+    articles: Article[],
     opts: { title?: string; description?: string; date?: Date; author?: string | string[] } = {},
 ): Promise<EPubMem> {
     // first gather all articles and their content, to make sure there's no errors
-    const chapters = [];
-    for (const articleURL of articleURLs) {
-        const articleFetchResponse = await fetch(articleURL, {
-            headers: {
-                "User-Agent": USER_AGENT,
-                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            },
-        });
-        if (!articleFetchResponse.ok) {
-            ROOT_LOGGER.warn(
-                { httpStatusCode: articleFetchResponse.status, httpStatusMessage: articleFetchResponse.statusText },
-                "failed to fetch article",
-            ); // TODO add a child logger
-            continue;
-        }
-        const articleData = Buffer.from(await articleFetchResponse.arrayBuffer());
-        const article = await parseArticle(articleData, {
-            url: articleURL,
-            contentType: articleFetchResponse.headers.get("Content-Type"),
-        });
-        chapters.push({
-            content: article.content,
-            title: article.title,
-            author: article.byline,
-            url: articleURL,
-        });
-    }
-
+    const chapters = articles.map(a => ({
+        content: a.content,
+        title: a.title,
+        author: a.byline,
+        url: a.url,
+    }));
     const epubOptions = {
         title: opts.title || `Article Collection, Generated ${new Date().toDateString()}`,
         description: opts.description || "Included Articles:\n" + chapters.map(a => "  " + a.title).join("\n"),
@@ -381,6 +361,75 @@ async function makeEpub(
     };
 
     return new EPubMem(epubOptions, chapters);
+}
+
+type FetchArticlesFromFeedOpts = {
+    before?: Date;
+    since?: Date;
+    max?: number;
+    orderBy?: "cronological" | "reverse-cronological";
+};
+
+async function fetchArticlesFromFeed(
+    _feedData: ArrayBuffer,
+    _contentType: string,
+    _opts: FetchArticlesFromFeedOpts = {},
+): Promise<Article[]> {
+    MOD_LOGGER.error("unimplemented!");
+    assert(false);
+}
+
+/// if url points to an html page parse it as an article, if it download
+async function fetchArticlesFromURL(
+    url: string | URL,
+    _opts: { feed?: FetchArticlesFromFeedOpts } = {},
+): Promise<Article[]> {
+    const logger = MOD_LOGGER.child({ op: "fetchArticlesFromURL", url });
+
+    logger.debug("fetching URL");
+    const urlFetchResponse = await fetch(url, {
+        headers: {
+            "User-Agent": USER_AGENT,
+            Accept: "application/atom+xml,application/rss+xml,application/feed+json,application/xml,application/json,text/html;q=0.9,application/xhtml+xml;q=0.9",
+        },
+    });
+
+    if (!urlFetchResponse.ok) {
+        logger.warn(
+            { httpStatusCode: urlFetchResponse.status, httpStatusMessage: urlFetchResponse.statusText },
+            "fetch failed",
+        ); // TODO add a child logger
+        throw new Error(`fetch '${url}': ${urlFetchResponse.status} ${urlFetchResponse.statusText}`);
+    }
+
+    let urlContentType = urlFetchResponse.headers.get("Content-Type");
+    if (!urlContentType) {
+        logger.warn(
+            {
+                httpStatusCode: urlFetchResponse.status,
+                httpStatusMessage: urlFetchResponse.statusText,
+                responseHeaders: urlFetchResponse.headers,
+            },
+            "cannot determine response content type, trying 'text/html'",
+        );
+        urlContentType = "text/html";
+    }
+
+    const urlMimeType = urlContentType.split(";")[0].trim();
+
+    logger.trace({ mimeType: urlMimeType, contentType: urlContentType }, "determined mime type from Content-Type");
+    if (["text/html", "application/xhtml+xml"].includes(urlMimeType)) {
+        logger.trace("parsing url as article");
+        const articleData = Buffer.from(await urlFetchResponse.arrayBuffer());
+        const article = await parseArticle(articleData, {
+            url,
+            contentType: urlContentType,
+        });
+        return [article];
+    } else {
+        logger.trace("parsing url as feed");
+        return fetchArticlesFromFeed(await urlFetchResponse.arrayBuffer(), urlContentType);
+    }
 }
 
 const _ARG_PARSE_CONFIG: ParseArgsConfig = {
@@ -417,8 +466,8 @@ async function main(): Promise<number> {
     const logger = ROOT_LOGGER.child({ op: "main" });
     const { values: parameters, positionals: args } = parseArgs(_ARG_PARSE_CONFIG);
 
-    const articles = args.slice(2);
-    logger.trace({ parameters, args, articles }, "parsed command line");
+    const articleURLs = args.slice(2);
+    logger.trace({ parameters, args, articles: articleURLs }, "parsed command line");
 
     if ("transport" in parameters != "transport-config" in parameters) {
         logger.error("--transport-config and --transport must both be present or excluded");
@@ -435,11 +484,12 @@ async function main(): Promise<number> {
     // }
 
     const outPath = parameters["out"];
+    const articles = await Promise.all(articleURLs.map(url => fetchArticlesFromURL(url)));
 
-    logger.debug({ articles, outPath }, "building epub chapters");
-    const epub = await makeEpub(articles);
+    logger.debug({ articleURLs, outPath }, "building epub chapters");
+    const epub = await makeEpub(articles.flat());
 
-    logger.debug({ articles, outPath }, "rendering epub file");
+    logger.debug({ articleURLs, outPath }, "rendering epub file");
     await epub.render();
 
     if (outPath) {
@@ -448,7 +498,7 @@ async function main(): Promise<number> {
         await new Promise((a, r) => writeFile(outPath, epubBuffer, err => (err ? r(err) : a(null))));
     }
 
-    logger.info({ articles, outPath }, "finished building epub");
+    logger.info({ articleURLs, outPath }, "finished building epub");
     return 0;
 }
 
