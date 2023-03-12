@@ -1,7 +1,7 @@
 import process, { exit } from "process";
 import { EPub, EpubContentOptions } from "@lesjoursfr/html-to-epub";
 import path from "path";
-import fs from "fs";
+import fs, { writeFile } from "fs";
 import nodemailer from "nodemailer";
 import RSSParser from "rss-parser";
 import { parseArticle } from "./article.js";
@@ -11,6 +11,7 @@ import { ParseArgsConfig } from "node:util";
 import { parseArgs } from "util";
 import { buildNodemailerFromTransportConfig } from "./transport-config.js";
 import assert from "assert";
+import { EPub as EPubMem } from "epub-gen-memory";
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
  */
@@ -341,11 +342,10 @@ const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss
 
 async function makeEpub(
     articleURLs: string[],
-    outPath: string,
     opts: { title?: string; description?: string; date?: Date; author?: string | string[] } = {},
-) {
+): Promise<EPubMem> {
     // first gather all articles and their content, to make sure there's no errors
-    const chapters: EpubContentOptions[] = [];
+    const chapters = [];
     for (const articleURL of articleURLs) {
         const articleFetchResponse = await fetch(articleURL, {
             headers: {
@@ -365,11 +365,11 @@ async function makeEpub(
             url: articleURL,
             contentType: articleFetchResponse.headers.get("Content-Type"),
         });
-        ROOT_LOGGER.debug({ content: article.content }, "content");
         chapters.push({
-            data: article.content,
+            content: article.content,
             title: article.title,
             author: article.byline,
+            url: articleURL,
         });
     }
 
@@ -378,11 +378,9 @@ async function makeEpub(
         description: opts.description || "Included Articles:\n" + chapters.map(a => "  " + a.title).join("\n"),
         date: opts.date?.toISOString() || new Date().toISOString(),
         author: opts.author || chapters.map(a => (Array.isArray(a.author) ? a.author.join(", ") : a.author)),
-
-        content: chapters,
     };
 
-    return new EPub(epubOptions, outPath);
+    return new EPubMem(epubOptions, chapters);
 }
 
 const _ARG_PARSE_CONFIG: ParseArgsConfig = {
@@ -437,13 +435,18 @@ async function main(): Promise<number> {
     // }
 
     const outPath = parameters["out"];
-    assert(typeof outPath == "string");
 
     logger.debug({ articles, outPath }, "building epub chapters");
-    const epub = await makeEpub(articles, outPath);
+    const epub = await makeEpub(articles);
 
     logger.debug({ articles, outPath }, "rendering epub file");
     await epub.render();
+
+    if (outPath) {
+        assert(typeof outPath == "string");
+        const epubBuffer = await epub.genEpub();
+        await new Promise((a, r) => writeFile(outPath, epubBuffer, err => (err ? r(err) : a(null))));
+    }
 
     logger.info({ articles, outPath }, "finished building epub");
     return 0;
