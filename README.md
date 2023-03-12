@@ -16,6 +16,8 @@ rss2epub [OPTIONS] <FEED|URL>
 - `--to <email>` send the generated file to the given email (NOTE: requires `--transport`)
 - `--out <path>` write the generate file to `path`. When the [Mode](#modes) is `individual`, `--out` must be a directory. [default: "/tmp/rss2epub"]
 - `--order date` order the articles by date before compiling/sending (depends on `--mode`)
+- `--after <DATE>` only consider articles in feeds newer than the given date (NOTE: doesn't affect single articles)
+- `--before <DATE>` only consider articles in feeds older than the given date (NOTE: doesn't affect single articles)
 - `--reverse` reverses the articles order before compiling/sending (depends on `--mode`)
 - `--mode <MODE>` see [Modes](#modes)
 

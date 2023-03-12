@@ -12,7 +12,7 @@ export const SUPPORTED_CONTENT_TYPES = ["text/html", "application/xhtml+xml"];
 
 export type Article = {
     title: string;
-    byline: string;
+    byline?: string;
     length: number;
     excerpt: string;
     siteName: string;
