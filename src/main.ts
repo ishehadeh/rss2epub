@@ -9,7 +9,7 @@ import { createHash } from "crypto";
 import { ROOT_LOGGER } from "./root-logger.js";
 import { ParseArgsConfig } from "node:util";
 import { parseArgs } from "util";
-// import { buildNodemailerFromTransportConfig } from "./transport-config.js";
+import { buildNodemailerFromTransportConfig } from "./transport-config.js";
 import assert from "assert";
 import { EPub as EPubMem } from "epub-gen-memory";
 import FeedParser from "feedparser";
@@ -625,21 +625,29 @@ async function main(): Promise<number> {
     const articleURLs = args.slice(2);
     logger.trace({ parameters, args, articles: articleURLs }, "parsed command line");
 
-    if ("transport" in parameters != "transport-config" in parameters) {
-        logger.error("--transport-config and --transport must both be present or excluded");
-        return 1;
-    }
-
-    // TODO: send mail
-    // let transport;
-    // if ("transport-config" in parameters) {
-    //     assert(typeof parameters["transport-config"] == "string" && typeof parameters["transport"] == "string");
-
-    //     logger.info("setting up transport");
-    //     transport = await buildNodemailerFromTransportConfig(parameters["transport-config"], parameters["transport"]);
-    // }
-
     const outPath = parameters["out"];
+    // TODO: check that out path is writeable?
+
+    // basic checks on mail parameters before actually doing any work.
+    if (parameters.to) {
+        assert(typeof parameters.to == "string");
+
+        if (!parameters.transport) {
+            logger.error("transport must be specified to send email");
+            return 1;
+        }
+        assert(typeof parameters.transport == "string");
+
+        if (!parameters["transport-config"]) {
+            parameters["transport-config"] = path.join(
+                process.env["HOME"] || process.env["USERPROFILE"],
+                ".config",
+                "rss2epub",
+                "transports.json",
+            );
+        }
+        assert(typeof parameters["transport-config"] == "string");
+    }
 
     const feedOpts: FetchArticlesFromFeedOpts = {};
     if (parameters.order) {
@@ -680,15 +688,57 @@ async function main(): Promise<number> {
         allArticles.push(...articlesFromURL);
     }
 
-    const epub = await makeEpub(allArticles);
+    const title = `Article Collection, Generated ${new Date().toDateString()}`;
+    const epub = await makeEpub(allArticles, { title });
 
     logger.debug({ articleURLs, outPath }, "rendering epub file");
     await epub.render();
 
+    const epubBuffer = await epub.genEpub();
     if (outPath) {
         assert(typeof outPath == "string");
-        const epubBuffer = await epub.genEpub();
         await new Promise((a, r) => writeFile(outPath, epubBuffer, err => (err ? r(err) : a(null))));
+    }
+
+    if (parameters.to) {
+        assert(typeof parameters.to == "string");
+
+        if (!parameters.transport) {
+            logger.error("transport must be specified to send email");
+            return 1;
+        }
+        assert(typeof parameters.transport == "string");
+
+        if (!parameters["transport-config"]) {
+            parameters["transport-config"] = path.join(
+                process.env["HOME"] || process.env["USERPROFILE"],
+                ".config",
+                "rss2epub",
+                "transport.json",
+            );
+        }
+        assert(typeof parameters["transport-config"] == "string");
+
+        logger.debug({ transport: parameters.transport }, "building transport");
+        const [transportOptions, transporter] = await buildNodemailerFromTransportConfig(
+            parameters["transport-config"],
+            parameters.transport,
+        );
+        const filename = "rss2epub-collection.epub";
+        await transporter.sendMail({
+            from: transportOptions.from,
+            to: parameters.to,
+            subject: `rss2epub: ${title}`,
+            html: '<div dir="auto"></div>',
+            attachments: [
+                {
+                    // stream as an attachment
+                    filename,
+                    content: epubBuffer,
+                    contentType: "application/epub+zip",
+                },
+            ],
+        });
     }
 
     logger.info({ articleURLs, outPath }, "finished building epub");
