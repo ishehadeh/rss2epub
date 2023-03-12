@@ -41,7 +41,6 @@ function isSMTPTransportOptions(o: any): o is SMTPTransportOptions {
 }
 
 function isTransportOptions(o: any): o is TransportOptions {
-    console.log(o);
     return isSMTPTransportOptions(o);
 }
 
