@@ -14,7 +14,7 @@ rss2epub [OPTIONS] <FEED|URL>
 - `--transport-config <path>` path to [Transport Config](#transport-config), (DEFAULT: `~/.config/rss2epub/transport.json`)
 - `--transport <TRANSPORT>` send the generated file using the given mail transport, see [Transport Config](#transport-config) (NOTE: requires `--to`)
 - `--to <email>` send the generated file to the given email (NOTE: requires `--transport`)
-- `--out <path>` write the generate file to `path`. When the [Mode](#modes) is `individual`, `--out` must be a directory.
+- `--out <path>` write the generate file to `path`. When the [Mode](#modes) is `individual`, `--out` must be a directory. [default: "/tmp/rss2epub"]
 - `--order date` order the articles by date before compiling/sending (depends on `--mode`)
 - `--reverse` reverses the articles order before compiling/sending (depends on `--mode`)
 - `--mode <MODE>` see [Modes](#modes)
@@ -36,7 +36,7 @@ Currently, the only supported transport is `smtp`.
 ```json5
 {
     // The transport name is "example".
-    // The name is used to reference it on the CLI with `--transport` flag 
+    // The name is used to reference it on the CLI with `--transport` flag
     "example": {
         "type": "smtp", // only "smtp" transports are supported, currently.
         "from": "sender@example.com", // the "From" field in emails sent from this transport

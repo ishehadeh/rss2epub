@@ -1,4 +1,4 @@
-import process from "process";
+import process, { exit } from "process";
 import { EPub, EpubContentOptions } from "@lesjoursfr/html-to-epub";
 import path from "path";
 import fs from "fs";
@@ -8,6 +8,9 @@ import { parseArticle } from "./article.js";
 import { createHash } from "crypto";
 import { ROOT_LOGGER } from "./root-logger.js";
 import { ParseArgsConfig } from "node:util";
+import { parseArgs } from "util";
+import { buildNodemailerFromTransportConfig } from "./transport-config.js";
+import assert from "assert";
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
  */
@@ -334,6 +337,54 @@ class FeedMailer {
     }
 }
 
+const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss2epub/1";
+
+async function makeEpub(
+    articleURLs: string[],
+    outPath: string,
+    opts: { title?: string; description?: string; date?: Date; author?: string | string[] } = {},
+) {
+    // first gather all articles and their content, to make sure there's no errors
+    const chapters: EpubContentOptions[] = [];
+    for (const articleURL of articleURLs) {
+        const articleFetchResponse = await fetch(articleURL, {
+            headers: {
+                "User-Agent": USER_AGENT,
+                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        });
+        if (!articleFetchResponse.ok) {
+            ROOT_LOGGER.warn(
+                { httpStatusCode: articleFetchResponse.status, httpStatusMessage: articleFetchResponse.statusText },
+                "failed to fetch article",
+            ); // TODO add a child logger
+            continue;
+        }
+        const articleData = Buffer.from(await articleFetchResponse.arrayBuffer());
+        const article = await parseArticle(articleData, {
+            url: articleURL,
+            contentType: articleFetchResponse.headers.get("Content-Type"),
+        });
+        ROOT_LOGGER.debug({ content: article.content }, "content");
+        chapters.push({
+            data: article.content,
+            title: article.title,
+            author: article.byline,
+        });
+    }
+
+    const epubOptions = {
+        title: opts.title || `Article Collection, Generated ${new Date().toDateString()}`,
+        description: opts.description || "Included Articles:\n" + chapters.map(a => "  " + a.title).join("\n"),
+        date: opts.date?.toISOString() || new Date().toISOString(),
+        author: opts.author || chapters.map(a => (Array.isArray(a.author) ? a.author.join(", ") : a.author)),
+
+        content: chapters,
+    };
+
+    return new EPub(epubOptions, outPath);
+}
+
 const _ARG_PARSE_CONFIG: ParseArgsConfig = {
     args: process.argv,
     strict: true,
@@ -350,6 +401,7 @@ const _ARG_PARSE_CONFIG: ParseArgsConfig = {
         },
         out: {
             type: "string",
+            default: "/tmp/rss2epub.epub",
         },
         order: {
             type: "string",
@@ -363,27 +415,51 @@ const _ARG_PARSE_CONFIG: ParseArgsConfig = {
     },
 };
 
-(async () => {
-    const config: FeedMailerConfig = JSON.parse(fs.readFileSync(process.argv[2], { encoding: "utf-8" }));
-    const mailer = new FeedMailer(config);
-    for (let argi = 3; argi < process.argv.length; ++argi) {
-        const command = process.argv[argi];
-        switch (command) {
-            case "sync": {
-                await mailer.downloadFeedItems();
-                break;
-            }
-            case "send-indiviudal": {
-                await mailer.sendAllIndividual();
-                break;
-            }
-            case "send-amalgamate": {
-                await mailer.sendAllAmalgamate({ cronological: true, reversed: true, max: 20 });
-                break;
-            }
-            default: {
-                console.error("unknwon command '" + command + "'");
-            }
-        }
+async function main(): Promise<number> {
+    const logger = ROOT_LOGGER.child({ op: "main" });
+    const { values: parameters, positionals: args } = parseArgs(_ARG_PARSE_CONFIG);
+
+    const articles = args.slice(2);
+    logger.trace({ parameters, args, articles }, "parsed command line");
+
+    if ("transport" in parameters != "transport-config" in parameters) {
+        logger.error("--transport-config and --transport must both be present or excluded");
+        return 1;
     }
-})();
+
+    // TODO: send mail
+    // let transport;
+    // if ("transport-config" in parameters) {
+    //     assert(typeof parameters["transport-config"] == "string" && typeof parameters["transport"] == "string");
+
+    //     logger.info("setting up transport");
+    //     transport = await buildNodemailerFromTransportConfig(parameters["transport-config"], parameters["transport"]);
+    // }
+
+    const outPath = parameters["out"];
+    assert(typeof outPath == "string");
+
+    logger.debug({ articles, outPath }, "building epub chapters");
+    const epub = await makeEpub(articles, outPath);
+
+    logger.debug({ articles, outPath }, "rendering epub file");
+    await epub.render();
+
+    logger.info({ articles, outPath }, "finished building epub");
+    return 0;
+}
+
+// Fetch article metadata from a list of direct article URLs or feed URLS
+// function fetchArticles(url: string): ArticleMeta {
+//     const articleFetchResult = await fetch(url, {
+//         redirect: "follow",
+//         headers: {
+//             "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss2epub/1",
+//             Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+//         },
+//     });
+// }
+
+main()
+    .then(code => exit(code))
+    .catch(error => ROOT_LOGGER.error(error, "uncaught error from main"));
