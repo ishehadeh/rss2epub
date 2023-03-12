@@ -6,7 +6,7 @@ import path from "path";
 import { Readability } from "@mozilla/readability";
 import { createHash } from "crypto";
 
-const LOGGER = ROOT_LOGGER.child({ module: "util" });
+const LOGGER = ROOT_LOGGER.child({ module: "article" });
 
 export const SUPPORTED_CONTENT_TYPES = ["text/html", "application/xhtml+xml"];
 
