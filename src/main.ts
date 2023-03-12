@@ -7,6 +7,7 @@ import RSSParser from "rss-parser";
 import { parseArticle } from "./article.js";
 import { createHash } from "crypto";
 import { ROOT_LOGGER } from "./root-logger.js";
+import { ParseArgsConfig } from "node:util";
 
 /** Notable fields for an article from the RSS/Atom/JSON feed
  */
@@ -332,6 +333,35 @@ class FeedMailer {
         this.writeCache();
     }
 }
+
+const _ARG_PARSE_CONFIG: ParseArgsConfig = {
+    args: process.argv,
+    strict: true,
+    allowPositionals: true,
+    options: {
+        "transport-config": {
+            type: "string",
+        },
+        transport: {
+            type: "string",
+        },
+        to: {
+            type: "string",
+        },
+        out: {
+            type: "string",
+        },
+        order: {
+            type: "string",
+        },
+        reverse: {
+            type: "boolean",
+        },
+        mode: {
+            type: "string",
+        },
+    },
+};
 
 (async () => {
     const config: FeedMailerConfig = JSON.parse(fs.readFileSync(process.argv[2], { encoding: "utf-8" }));
