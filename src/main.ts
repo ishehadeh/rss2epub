@@ -272,7 +272,6 @@ const ARG_PARSE_CONFIG: ParseArgsConfig = {
         },
         out: {
             type: "string",
-            default: "/tmp/rss2epub.epub",
         },
         order: {
             type: "string",

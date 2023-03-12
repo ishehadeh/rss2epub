@@ -6,27 +6,21 @@ Includes support for emailing generated e-books, in they're accessible on e-read
 ## Usage
 
 ```sh
-rss2epub [OPTIONS] <FEED|URL>
+rss2epub [OPTIONS] ...URLS
 ```
+
+`URLS` is a series of links to articles or feed to bundle into an epub.
 
 ### Options
 
 - `--transport-config <path>` path to [Transport Config](#transport-config), (DEFAULT: `~/.config/rss2epub/transport.json`)
 - `--transport <TRANSPORT>` send the generated file using the given mail transport, see [Transport Config](#transport-config) (NOTE: requires `--to`)
 - `--to <email>` send the generated file to the given email (NOTE: requires `--transport`)
-- `--out <path>` write the generate file to `path`. When the [Mode](#modes) is `individual`, `--out` must be a directory. [default: "/tmp/rss2epub"]
-- `--order date` order the articles by date before compiling/sending (depends on `--mode`)
+- `--out <path>` write the generate file to `path`.
+- `--order date` order the articles by date before compiling
 - `--after <DATE>` only consider articles in feeds newer than the given date (NOTE: doesn't affect single articles)
 - `--before <DATE>` only consider articles in feeds older than the given date (NOTE: doesn't affect single articles)
-- `--reverse` reverses the articles order before compiling/sending (depends on `--mode`)
-- `--mode <MODE>` see [Modes](#modes)
-
-### Modes
-
-Currently, two EPUB generation modes are supported:
-
-- `individual` each article is put in its own EPUB file.
-- `bundle` articles are bundled into a single EPUB, where each chapter is a article.
+- `--reverse` reverses the articles order before compiling
 
 ## Transport Config
 
@@ -45,9 +39,7 @@ Currently, the only supported transport is `smtp`.
         "host": "mail.example.com", // SMTP host
         "port": 25, // SMTP port
 
-        // enable/disable secure connection.
-        // THIS SHOULD ALWAYS BE TRUE!
-        // otherwise your credentials will be sent in plaintext!
+        // force TLS
         "tls": true,
 
         // auth credentials
