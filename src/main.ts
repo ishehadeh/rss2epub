@@ -366,7 +366,7 @@ async function main(): Promise<number> {
         const [transportOptions, transporter] = await buildNodemailerFromTransportConfig(
             parameters["transport-config"],
         );
-        const filename = "rss2epub-collection.epub";
+        const filename = title.replace(/[/\\:*?"'<>|]/gi, "").trim() + ".epub";
         await transporter.sendMail({
             from: transportOptions.from,
             to: parameters.to,
