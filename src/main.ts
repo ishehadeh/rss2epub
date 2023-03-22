@@ -361,8 +361,12 @@ async function main(): Promise<number> {
         const conf = {
             title: metaSourceArticle?.title || `Article Collection, Generated ${new Date().toDateString()}`,
             description: metaSourceArticle?.excerpt || "Includes: " + articles.join(", "),
-            author: metaSourceArticle?.byline || "Mutliple Authors",
+            author: metaSourceArticle?.byline || "Unknown",
         };
+        if (articles.length > 1) {
+            conf.author = "Multiple Authors";
+        }
+
         const epub = await makeEpub(articles, conf);
 
         logger.debug({ articleURLs, outPath }, "rendering epub file");
