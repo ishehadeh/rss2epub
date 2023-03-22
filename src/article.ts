@@ -68,7 +68,11 @@ export async function parseArticle(html: Buffer, opts: GetArticleOptions): Promi
         await addSVGFallbacks(dom.window.document, imgPath, opts.renderSVG.defaultFit);
     }
 
-    logger.trace("reformatting article with readability");
+    logger.debug("reformatting article with readability");
+
+    logger.debug("cleaning header elements");
+    makeHeaderContentsPlaintext(dom.window.document);
+
     const reader = new Readability(dom.window.document);
     const readerArticle = reader.parse();
     return {
@@ -80,6 +84,24 @@ export async function parseArticle(html: Buffer, opts: GetArticleOptions): Promi
         url: opts.url.toString(),
         content: readerArticle.content,
     };
+}
+
+// kindle wasn't taking a document with links in the header
+function makeHeaderContentsPlaintext(document: Document) {
+    const logger = LOGGER.child({ op: "makeHeaderContentsPlaintext" });
+
+    const HEADER_ELEM_SELECTORS = ["h1", "h2", "h3", "h4", "h5", "h6"];
+    for (const selector of HEADER_ELEM_SELECTORS) {
+        logger.trace({ selector }, "scanning for header elements");
+        const elems = document.querySelectorAll(selector);
+        for (const elem of elems.values()) {
+            const text = elem.textContent;
+            if (elem.innerHTML != text) {
+                logger.debug({ oldContent: elem.innerHTML, newContent: text }, "replacing header contents");
+                elem.innerHTML = text;
+            }
+        }
+    }
 }
 
 async function addSVGFallbacks(
