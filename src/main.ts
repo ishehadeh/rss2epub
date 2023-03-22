@@ -358,6 +358,8 @@ async function main(): Promise<number> {
         await new Promise((a, r) => writeFile(outPath, epubBuffer, err => (err ? r(err) : a(null))));
     }
 
+    logger.info({ articleURLs, outPath }, "finished building epub");
+
     if (parameters.to) {
         assert(typeof parameters.to == "string");
         assert(typeof parameters["transport-config"] == "string");
@@ -367,6 +369,7 @@ async function main(): Promise<number> {
             parameters["transport-config"],
         );
         const filename = title.replace(/[/\\:*?"'<>|]/gi, "").trim() + ".epub";
+        logger.info("sending epub", { emailTo: parameters.to });
         await transporter.sendMail({
             from: transportOptions.from,
             to: parameters.to,
@@ -383,7 +386,6 @@ async function main(): Promise<number> {
         });
     }
 
-    logger.info({ articleURLs, outPath }, "finished building epub");
     return 0;
 }
 
