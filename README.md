@@ -20,6 +20,10 @@ rss2epub [OPTIONS] ...URLS
 - `--after <DATE>` only consider articles in feeds newer than the given date (NOTE: doesn't affect single articles)
 - `--before <DATE>` only consider articles in feeds older than the given date (NOTE: doesn't affect single articles)
 - `--reverse` reverses the articles order before compiling
+### Env Vars
+
+- `RSS2EPUB_LOG=<trace|debug|info|warn|error|fatal>`: Global log level for the rss2epub
+
 
 ## Transport Config
 
