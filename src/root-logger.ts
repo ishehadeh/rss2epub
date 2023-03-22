@@ -5,5 +5,5 @@ export const ROOT_LOGGER = pino({
     transport: {
         target: "pino-pretty",
     },
-    level: env["RSS2EPUB_LOG"],
+    level: env["RSS2EPUB_LOG"] || "info",
 });
