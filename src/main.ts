@@ -377,7 +377,6 @@ async function main(): Promise<number> {
             html: '<div dir="auto"></div>',
             attachments: [
                 {
-                    // stream as an attachment
                     filename,
                     content: epubBuffer,
                     contentType: "application/epub+zip",
