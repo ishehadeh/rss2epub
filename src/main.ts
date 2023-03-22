@@ -8,7 +8,7 @@ import { buildNodemailerFromTransportConfig } from "./transport-config.js";
 import assert from "assert";
 import { EPub as EPubMem } from "epub-gen-memory";
 import FeedParser from "feedparser";
-import { writeFile } from "fs";
+import { existsSync, mkdirSync, writeFile } from "fs";
 
 const MOD_LOGGER = ROOT_LOGGER.child({ module: "main" });
 
@@ -340,51 +340,78 @@ async function main(): Promise<number> {
     }
 
     logger.debug({ articleURLs, outPath }, "fetching article contents");
+
     const allArticles: Article[] = [];
     for (const articleURL of articleURLs) {
         const articlesFromURL = await fetchArticlesFromURL(articleURL, { feed: feedOpts });
         allArticles.push(...articlesFromURL);
     }
 
-    const title = `Article Collection, Generated ${new Date().toDateString()}`;
-    const epub = await makeEpub(allArticles, { title });
-
-    logger.debug({ articleURLs, outPath }, "rendering epub file");
-    await epub.render();
-
-    const epubBuffer = await epub.genEpub();
-    if (outPath) {
-        assert(typeof outPath == "string");
-        await new Promise((a, r) => writeFile(outPath, epubBuffer, err => (err ? r(err) : a(null))));
+    let bundles: Article[][] = [];
+    if (parameters.mode == "individual") {
+        bundles = allArticles.map(a => [a]);
+    } else {
+        bundles = [allArticles];
     }
 
-    logger.info({ articleURLs, outPath }, "finished building epub");
+    for (const articles of bundles) {
+        logger.info({ articles: articles.map(a => a.url) }, "creating bundle");
+        // article to draw title, description author etc. from
+        const metaSourceArticle = articles.length == 1 ? articles[0] : null;
+        const conf = {
+            title: metaSourceArticle?.title || `Article Collection, Generated ${new Date().toDateString()}`,
+            description: metaSourceArticle?.excerpt || "Includes: " + articles.join(", "),
+            author: metaSourceArticle?.byline || "Mutliple Authors",
+        };
+        const epub = await makeEpub(articles, conf);
 
-    if (parameters.to) {
-        assert(typeof parameters.to == "string");
-        assert(typeof parameters["transport-config"] == "string");
+        logger.debug({ articleURLs, outPath }, "rendering epub file");
+        await epub.render();
 
-        logger.debug({ transport: parameters.transport }, "building transport");
-        const [transportOptions, transporter] = await buildNodemailerFromTransportConfig(
-            parameters["transport-config"],
-        );
-        const filename = title.replace(/[/\\:*?"'<>|]/gi, "").trim() + ".epub";
-        logger.info("sending epub", { emailTo: parameters.to });
-        await transporter.sendMail({
-            from: transportOptions.from,
-            to: parameters.to,
-            subject: `rss2epub: ${title}`,
-            html: '<div dir="auto"></div>',
-            attachments: [
-                {
-                    filename,
-                    content: epubBuffer,
-                    contentType: "application/epub+zip",
-                },
-            ],
-        });
+        const filename = conf.title.replace(/[/\\:*?"'<>|]/gi, "").trim() + ".epub";
+        const epubBuffer = await epub.genEpub();
+        if (outPath) {
+            assert(typeof outPath == "string");
+            let outFilePath = outPath;
+            if (parameters.mode == "individual") {
+                // in mode individual outPath is a directory of epubs
+                outFilePath = path.join(outFilePath, filename);
+                if (!existsSync(outPath)) {
+                    logger.debug({ outPath }, "creating output directory");
+                    mkdirSync(outPath);
+                }
+            }
+
+            logger.debug({ path: outFilePath }, "writing epub file");
+            await new Promise((a, r) => writeFile(outFilePath, epubBuffer, err => (err ? r(err) : a(null))));
+        }
+
+        logger.info({ articleURLs, outPath }, "finished building epub");
+
+        if (parameters.to) {
+            assert(typeof parameters.to == "string");
+            assert(typeof parameters["transport-config"] == "string");
+
+            logger.debug({ transport: parameters.transport }, "building transport");
+            const [transportOptions, transporter] = await buildNodemailerFromTransportConfig(
+                parameters["transport-config"],
+            );
+            logger.info("sending epub", { emailTo: parameters.to });
+            await transporter.sendMail({
+                from: transportOptions.from,
+                to: parameters.to,
+                subject: `rss2epub: ${conf.title}`,
+                html: '<div dir="auto"></div>',
+                attachments: [
+                    {
+                        filename,
+                        content: epubBuffer,
+                        contentType: "application/epub+zip",
+                    },
+                ],
+            });
+        }
     }
-
     return 0;
 }
 

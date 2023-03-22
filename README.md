@@ -20,10 +20,19 @@ rss2epub [OPTIONS] ...URLS
 - `--after <DATE>` only consider articles in feeds newer than the given date (NOTE: doesn't affect single articles)
 - `--before <DATE>` only consider articles in feeds older than the given date (NOTE: doesn't affect single articles)
 - `--reverse` reverses the articles order before compiling
+- `--mode <individual|bundle>` rendering mode [see: [#Modes]]
+
 ### Env Vars
 
 - `RSS2EPUB_LOG=<trace|debug|info|warn|error|fatal>`: Global log level for the rss2epub
 
+## Modes
+
+Currently there are two supported rendering modes, "bundle" and "individual" (epub).
+
+**Invidiual** renders creates an EPub for every article, with a single chapter. The author, description and title are drawn from the metadata of the article.
+
+**Bundle** collects all articles into a single epub, where every chapter is an article. The description lists the contained articles, and its always attributed to "Multiple Authors", unless there is a single article in the bundle. In that case it works exactly like individual.
 
 ## Transport Config
 
