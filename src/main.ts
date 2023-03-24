@@ -14,17 +14,27 @@ const MOD_LOGGER = ROOT_LOGGER.child({ module: "main" });
 
 const USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 rss2epub/1";
 
+function slugify(title: string): string {
+    // remove any remaining non alphanumeric, whitespace, or _ characters, replace 1+ whitespace with '-'.
+    return title
+        .toLowerCase()
+        .replaceAll(/[^\w\s]/gu, "")
+        .replaceAll(/[\s_]+/gu, "-");
+}
+
 async function makeEpub(
     articles: Article[],
     opts: { title?: string; description?: string; date?: Date; author?: string | string[] } = {},
 ): Promise<EPubMem> {
     // first gather all articles and their content, to make sure there's no errors
-    const chapters = articles.map(a => ({
+    const chapters = articles.map((a, i) => ({
         content: a.content,
         title: a.title,
         author: a.byline || "Unknown",
         url: a.url,
+        filename: `${i}_${slugify(a.title)}.xhtml`,
     }));
+
     const epubOptions = {
         title: opts.title || `Article Collection, Generated ${new Date().toDateString()}`,
         description: opts.description || "Included Articles:\n" + chapters.map(a => "  " + a.title).join("\n"),
