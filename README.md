@@ -16,7 +16,7 @@ rss2epub [OPTIONS] ...URLS
 - `--transport-config <path>` path to [Transport Config](#transport-config), (DEFAULT: `~/.config/rss2epub/transport.json`)
 - `--to <email>` send the generated file to the given email (NOTE: requires `--transport`)
 - `--out <path>` write the generate file to `path`.
-- `--order date` order the articles by date before compiling
+- `--order date` order the articles by date (ascending) before compiling
 - `--after <DATE>` only consider articles in feeds newer than the given date (NOTE: doesn't affect single articles)
 - `--before <DATE>` only consider articles in feeds older than the given date (NOTE: doesn't affect single articles)
 - `--reverse` reverses the articles order before compiling
